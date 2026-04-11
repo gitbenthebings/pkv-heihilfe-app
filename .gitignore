@@ -1,0 +1,24 @@
+# Secrets & Konfiguration
+.env
+.env.*
+!.env.example
+
+# Seed-Daten (enthalten Passwörter und persönliche Daten)
+seed.json
+data/
+
+# Datenbank-Dateien
+*.db
+*.db-shm
+*.db-wal
+
+# Build-Artefakte
+backend/target/
+frontend/node_modules/
+frontend/dist/
+
+# Release-Images (können groß sein)
+release/*.tar.gz
+
+# Claude Code lokale Konfiguration
+.claude/

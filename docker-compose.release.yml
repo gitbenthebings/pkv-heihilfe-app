@@ -1,0 +1,20 @@
+services:
+  backend:
+    image: pkv-app-backend:latest
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      DATABASE_URL: sqlite:/data/pkv.db
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      SEED_FILE: /data/seed.json
+    restart: unless-stopped
+
+  frontend:
+    image: pkv-app-frontend:latest
+    ports:
+      - "${UI_PORT:-8090}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

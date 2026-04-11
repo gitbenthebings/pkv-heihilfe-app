@@ -1,0 +1,177 @@
+export interface Benutzer {
+  id: string
+  mandant_id: string
+  name: string
+  email: string
+}
+
+export interface CreateBenutzer {
+  name: string
+  email: string
+  passwort: string
+}
+
+export interface UpdateBenutzer {
+  name?: string
+  email?: string
+}
+
+export interface Beihilfestelle {
+  id: string
+  mandant_id: string
+  name: string
+  dienstherr_typ: 'bund' | 'land' | 'kommune'
+}
+
+export interface CreateBeihilfestelle {
+  name: string
+  dienstherr_typ: 'bund' | 'land' | 'kommune'
+}
+
+export interface UpdateBeihilfestelle {
+  name?: string
+  dienstherr_typ?: 'bund' | 'land' | 'kommune'
+}
+
+export interface Person {
+  id: string
+  mandant_id: string
+  name: string
+  geburtsdatum: string
+  typ: 'erwachsener' | 'kind'
+  beihilfestelle_id: string | null
+  beihilfe_satz: number
+  pkv_satz: number
+  bre_schwelle: number | null
+}
+
+export interface CreatePerson {
+  name: string
+  geburtsdatum: string
+  typ: 'erwachsener' | 'kind'
+  beihilfestelle_id?: string
+  beihilfe_satz: number
+  pkv_satz: number
+  bre_schwelle?: number | null
+}
+
+export interface UpdatePerson {
+  name?: string
+  geburtsdatum?: string
+  typ?: 'erwachsener' | 'kind'
+  beihilfestelle_id?: string
+  beihilfe_satz?: number
+  pkv_satz?: number
+  bre_schwelle?: number | null
+}
+
+export interface Correspondent {
+  id: string
+  mandant_id: string
+  name: string
+  typ: 'arzt' | 'krankenhaus' | 'apotheke' | 'abrechnungsstelle'
+}
+
+export interface CreateCorrespondent {
+  name: string
+  typ: 'arzt' | 'krankenhaus' | 'apotheke' | 'abrechnungsstelle'
+}
+
+export interface UpdateCorrespondent {
+  name?: string
+  typ?: 'arzt' | 'krankenhaus' | 'apotheke' | 'abrechnungsstelle'
+}
+
+export interface Rechnung {
+  id: string
+  person_id: string
+  leistungserbringer_id: string
+  typ: 'arzt' | 'apotheke' | 'krankenhaus'
+  betrag: number
+  datum: string
+  zahlungsziel: string | null
+  bezahlt_am: string | null
+  beihilfe_eingereicht_am: string | null
+  pkv_eingereicht_am: string | null
+  notiz: string | null
+  archiviert_am: string | null
+  referenz_nr: number | null
+  beihilfe_erstattet_betrag: number | null
+  pkv_erstattet_betrag: number | null
+  zahlung_status: 'offen' | 'bezahlt'
+  beihilfe_status: 'offen' | 'eingereicht' | null
+  pkv_status: 'offen' | 'eingereicht'
+  archiviert_status: 'aktiv' | 'archiviert'
+  beihilfe_anteil_erwartet: number | null
+  pkv_anteil_erwartet: number | null
+  beihilfe_differenz: number | null
+  pkv_differenz: number | null
+  pkv_gescannt: boolean
+  beihilfe_gescannt: boolean
+}
+
+export interface KanbanBoard {
+  neu: Rechnung[]
+  bezahlt: Rechnung[]
+  beihilfe_eingereicht: Rechnung[]
+  pkv_eingereicht: Rechnung[]
+  abgeschlossen: Rechnung[]
+}
+
+export interface FinanzOverview {
+  offen_unbezahlt: number
+  offen_unbezahlt_beihilfe: number
+  offen_unbezahlt_pkv: number
+  bezahlt_pkv_offen: number
+  bezahlt_pkv_offen_pkv: number
+  bezahlt_beihilfe_offen: number
+  bezahlt_beihilfe_offen_beihilfe: number
+  abgeschlossen: number
+  abgeschlossen_beihilfe: number
+  abgeschlossen_pkv: number
+}
+
+export interface BreIndikator {
+  person_id: string
+  person_name: string
+  bre_schwelle: number
+  pkv_offen: number
+  bre_spielraum: number
+}
+
+export interface DashboardData {
+  kanban: KanbanBoard
+  finanzen: FinanzOverview
+  bre: BreIndikator[]
+}
+
+export type BulkAction = 'bezahlt' | 'beihilfe_eingereicht' | 'pkv_eingereicht' | 'archivieren' | 'dearchivieren'
+
+export interface CreateRechnung {
+  person_id: string
+  leistungserbringer_id: string
+  typ: 'arzt' | 'apotheke' | 'krankenhaus'
+  betrag: number
+  datum: string
+  zahlungsziel?: string
+  notiz?: string
+  pkv_gescannt?: boolean
+  beihilfe_gescannt?: boolean
+}
+
+export interface UpdateRechnung {
+  bezahlt_am?: string
+  beihilfe_eingereicht_am?: string
+  pkv_eingereicht_am?: string
+  notiz?: string
+  betrag?: number
+  datum?: string
+  zahlungsziel?: string
+  leistungserbringer_id?: string
+  typ?: string
+  person_id?: string
+  beihilfe_erstattet_betrag?: number | null
+  pkv_erstattet_betrag?: number | null
+  pkv_gescannt?: boolean
+  beihilfe_gescannt?: boolean
+}

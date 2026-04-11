@@ -1,0 +1,44 @@
+{
+  "mandant": {
+    "name": "Familie Mustermann"
+  },
+  "benutzer": [
+    {
+      "name": "Max Mustermann",
+      "email": "max@example.com",
+      "passwort": "bitte-aendern"
+    }
+  ],
+  "beihilfestellen": [
+    {
+      "id": "bva",
+      "name": "Bundesverwaltungsamt",
+      "dienstherr_typ": "bund"
+    }
+  ],
+  "personen": [
+    {
+      "name": "Max",
+      "geburtsdatum": "1980-01-01",
+      "typ": "erwachsener",
+      "beihilfestelle_id": "bva",
+      "beihilfe_satz": 50,
+      "pkv_satz": 50,
+      "bre_schwelle": 300.00
+    },
+    {
+      "name": "Kind",
+      "geburtsdatum": "2015-06-15",
+      "typ": "kind",
+      "beihilfestelle_id": "bva",
+      "beihilfe_satz": 80,
+      "pkv_satz": 20,
+      "bre_schwelle": null
+    }
+  ],
+  "correspondents": [
+    { "name": "Dr. Musterarzt", "typ": "arzt" },
+    { "name": "Muster-Apotheke", "typ": "apotheke" },
+    { "name": "Muster-Krankenhaus", "typ": "krankenhaus" }
+  ]
+}

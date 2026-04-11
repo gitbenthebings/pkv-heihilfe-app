@@ -1,0 +1,20 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "${PORT:-3000}:3000"          # Backend-Port (optional in .env anpassen)
+    volumes:
+      - ./data:/data
+    environment:
+      DATABASE_URL: sqlite:/data/pkv.db
+      JWT_SECRET: ${JWT_SECRET:-changeme-bitte-aendern}   # ← ÄNDERN: langen Zufallsstring setzen
+      SEED_FILE: /data/seed.json
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${UI_PORT:-8090}:80"         # Frontend-Port (optional in .env anpassen)
+    depends_on:
+      - backend
+    restart: unless-stopped
