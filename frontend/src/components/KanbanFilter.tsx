@@ -107,7 +107,7 @@ function MultiSelectDropdown({
     <div className="relative shrink-0" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+        className={`flex items-center gap-1 px-2 py-1.5 sm:py-1 text-xs rounded border transition-colors ${
           selected.length > 0
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
             : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-gray-400'
@@ -125,7 +125,7 @@ function MultiSelectDropdown({
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 py-1">
+        <div className="absolute top-full left-0 mt-1 w-[min(95vw,13rem)] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 py-1">
           {searchable && (
             <div className="px-2 pt-1 pb-1">
               <input
@@ -257,14 +257,14 @@ export default function KanbanFilter({ personen, correspondents, filter, groupBy
             type="date"
             value={von}
             onChange={e => setDate('von', e.target.value)}
-            className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 w-auto"
+            className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1 sm:py-0.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 w-auto"
           />
           <span className="text-xs text-gray-500 dark:text-gray-400">Bis</span>
           <input
             type="date"
             value={bis}
             onChange={e => setDate('bis', e.target.value)}
-            className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 w-auto"
+            className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1 sm:py-0.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 w-auto"
           />
         </div>
 
@@ -277,7 +277,7 @@ export default function KanbanFilter({ personen, correspondents, filter, groupBy
           <button
             key={q.key}
             onClick={() => applyQuick(q.key)}
-            className="px-1.5 py-0.5 text-xs text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 shrink-0"
+            className="px-2 py-1 sm:px-1.5 sm:py-0.5 text-xs text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 shrink-0"
           >
             {q.label}
           </button>
@@ -319,7 +319,7 @@ export default function KanbanFilter({ personen, correspondents, filter, groupBy
         <div className="flex rounded overflow-hidden border border-gray-300 dark:border-gray-600 text-xs shrink-0">
           <button
             onClick={() => onGroupByPerson(false)}
-            className={`px-2 py-1 ${!groupByPerson
+            className={`px-3 py-1.5 sm:px-2 sm:py-1 ${!groupByPerson
               ? 'bg-blue-600 text-white'
               : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
           >
@@ -327,7 +327,7 @@ export default function KanbanFilter({ personen, correspondents, filter, groupBy
           </button>
           <button
             onClick={() => onGroupByPerson(true)}
-            className={`px-2 py-1 border-l border-gray-300 dark:border-gray-600 ${groupByPerson
+            className={`px-3 py-1.5 sm:px-2 sm:py-1 border-l border-gray-300 dark:border-gray-600 ${groupByPerson
               ? 'bg-blue-600 text-white'
               : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
           >

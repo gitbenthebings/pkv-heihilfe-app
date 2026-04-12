@@ -95,9 +95,9 @@ export default function RechnungenPage() {
 
   return (
     <div className="space-y-4 pb-20">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">Rechnungen</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <PersonFilter
             personen={personen}
             selectedId={selectedPersonId}
@@ -107,7 +107,7 @@ export default function RechnungenPage() {
           <div className="flex rounded-md overflow-hidden border border-gray-300 dark:border-gray-600 text-sm">
             <button
               onClick={() => switchModus(false)}
-              className={`px-3 py-1.5 ${!archivModus
+              className={`px-3 py-2 sm:py-1.5 ${!archivModus
                 ? 'bg-blue-600 text-white'
                 : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
             >
@@ -115,7 +115,7 @@ export default function RechnungenPage() {
             </button>
             <button
               onClick={() => switchModus(true)}
-              className={`px-3 py-1.5 border-l border-gray-300 dark:border-gray-600 ${archivModus
+              className={`px-3 py-2 sm:py-1.5 border-l border-gray-300 dark:border-gray-600 ${archivModus
                 ? 'bg-amber-600 text-white'
                 : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
             >
@@ -125,7 +125,7 @@ export default function RechnungenPage() {
           {!archivModus && (
             <button
               onClick={() => setShowForm(s => !s)}
-              className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+              className="px-4 py-2 sm:py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
             >
               {showForm ? 'Abbrechen' : '+ Neue Rechnung'}
             </button>

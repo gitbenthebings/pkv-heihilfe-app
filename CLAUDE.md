@@ -97,13 +97,13 @@ pkv-app/
         │   ├── rechnungen.ts    ← getRechnungen(personId?, archiviert?)
         │   └── dashboard.ts
         ├── components/
-        │   ├── BulkActionBar.tsx    ← archivModus-Prop steuert sichtbare Aktionen
+        │   ├── BulkActionBar.tsx    ← archivModus-Prop steuert sichtbare Aktionen; mobile: verkürzte Labels
         │   ├── FinanzOverview.tsx
         │   ├── KanbanBoard.tsx      ← groupByPerson-Prop
         │   ├── KanbanFilter.tsx     ← useKanbanFilter(), filterKanban(); URL-State
         │   ├── Layout.tsx
         │   ├── PersonFilter.tsx
-        │   ├── RechnungenTable.tsx  ← client-seitig sortierbar
+        │   ├── RechnungenTable.tsx  ← client-seitig sortierbar; mobile: Kartenansicht (sm:hidden/hidden sm:block)
         │   ├── RechnungForm.tsx
         │   └── StatusBadge.tsx
         ├── hooks/
@@ -285,6 +285,18 @@ GET    /api/dashboard
 - **Kanban-Gruppierung**: umschaltbar zwischen "Nach Status" und "Nach Person"
 - Stammdaten über Tab-Interface in der Stammdaten-Seite (Personen / Leistungserbringer / Beihilfestellen / Benutzer)
 - Fehlermeldungen bei fehlgeschlagenen Löschoperationen inline als rotes Banner
+- **Mobile-First**: alle Seiten für Smartphone optimiert (Breakpoint `sm` = 640px)
+
+### Mobile-Responsive-Muster
+
+| Komponente | Mobile | Desktop (sm+) |
+|---|---|---|
+| `RechnungenTable` | Kartenansicht (`sm:hidden`) mit Inline-Bearbeitungsformular | Tabelle (`hidden sm:block`) |
+| `RechnungForm` | 1-spaltig (`grid-cols-1`) | 2–4-spaltig |
+| `BulkActionBar` | Kurze Labels (Bezahlt / Beihilfe / PKV) | Lange Labels |
+| `KanbanFilter` | Größere Touch-Targets, Dropdowns `w-[min(95vw,13rem)]` | Normal |
+| `StammdatenPage` Formulare | 1-spaltig | 2–3-spaltig |
+| `StammdatenPage` Tabs | Horizontal scrollbar (`overflow-x-auto`) | Normal |
 
 ---
 
@@ -334,4 +346,4 @@ docker save pkv-app-backend:latest pkv-app-frontend:latest | gzip > release/pkv-
 
 ---
 
-*Letzte Aktualisierung: 2026-04-10 | Version: 1.2*
+*Letzte Aktualisierung: 2026-04-12 | Version: 1.3*

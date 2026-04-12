@@ -59,15 +59,15 @@ export default function FinanzOverview({ finanzen, filtered }: Props) {
         if (pkv !== null) sub.push(`PKV ${formatEuro(pkv)}`)
 
         return (
-          <div key={z.gesamt} className={`rounded border px-3 py-1.5 ${z.color}`}>
-            <p className="font-medium opacity-75 leading-tight" style={{ fontSize: 11 }}>
+          <div key={z.gesamt} className={`rounded border px-3 py-2 ${z.color}`}>
+            <p className="font-medium opacity-75 leading-tight text-[11px]">
               {z.label}{filtered ? ' *' : ''}
             </p>
-            <p className="font-bold tabular-nums" style={{ fontSize: 18, lineHeight: 1.25 }}>
+            <p className="font-bold tabular-nums text-lg leading-tight">
               {formatEuro(gesamt)}
             </p>
             {sub.length > 0 && (
-              <p className="opacity-70 tabular-nums" style={{ fontSize: 11 }}>{sub.join(' · ')}</p>
+              <p className="opacity-70 tabular-nums text-[11px]">{sub.join(' · ')}</p>
             )}
           </div>
         )

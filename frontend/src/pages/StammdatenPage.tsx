@@ -87,7 +87,7 @@ function BeihilfestellenTab() {
       {showNew && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
           <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neue Beihilfestelle</h3>
-          <div className="grid grid-cols-2 gap-3 max-w-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
             <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Name</label>
               <input className={inputCls} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></div>
             <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Dienstherr</label>
@@ -324,7 +324,7 @@ function CorrespondentsTab() {
       {showNew && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
           <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neuer Leistungserbringer</h3>
-          <div className="grid grid-cols-2 gap-3 max-w-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
             <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Name</label>
               <input className={inputCls} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></div>
             <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Typ</label>
@@ -522,13 +522,13 @@ export default function StammdatenPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">Stammdaten</h1>
 
-      <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="flex gap-1">
+      <div className="border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+        <nav className="flex gap-1 min-w-max">
           {(Object.keys(tabLabels) as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 py-2.5 sm:py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 tab === t
                   ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'

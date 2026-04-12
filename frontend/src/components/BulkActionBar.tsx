@@ -13,16 +13,16 @@ export default function BulkActionBar({ count, onAction, onClear, loading, archi
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-lg z-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3 flex-wrap">
-        <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">
-          {count} Rechnung{count !== 1 ? 'en' : ''} ausgewählt
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-gray-600 dark:text-gray-300 font-medium shrink-0">
+          {count} ausgewählt
         </span>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-1.5 flex-wrap flex-1">
           {archivModus ? (
             <button
               onClick={() => onAction('dearchivieren')}
               disabled={loading}
-              className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+              className="px-3 py-2 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
             >
               De-archivieren
             </button>
@@ -31,28 +31,31 @@ export default function BulkActionBar({ count, onAction, onClear, loading, archi
               <button
                 onClick={() => onAction('bezahlt')}
                 disabled={loading}
-                className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                className="px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
               >
-                Als bezahlt markieren
+                <span className="sm:hidden">Bezahlt</span>
+                <span className="hidden sm:inline">Als bezahlt markieren</span>
               </button>
               <button
                 onClick={() => onAction('beihilfe_eingereicht')}
                 disabled={loading}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
               >
-                Beihilfe: eingereicht
+                <span className="sm:hidden">Beihilfe</span>
+                <span className="hidden sm:inline">Beihilfe: eingereicht</span>
               </button>
               <button
                 onClick={() => onAction('pkv_eingereicht')}
                 disabled={loading}
-                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                className="px-3 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
               >
-                PKV: eingereicht
+                <span className="sm:hidden">PKV</span>
+                <span className="hidden sm:inline">PKV: eingereicht</span>
               </button>
               <button
                 onClick={() => onAction('archivieren')}
                 disabled={loading}
-                className="px-3 py-1.5 text-sm bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                className="px-3 py-2 text-sm bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
               >
                 Archivieren
               </button>
@@ -61,9 +64,9 @@ export default function BulkActionBar({ count, onAction, onClear, loading, archi
         </div>
         <button
           onClick={onClear}
-          className="ml-auto text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          className="shrink-0 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
         >
-          Auswahl aufheben
+          ✕
         </button>
       </div>
     </div>

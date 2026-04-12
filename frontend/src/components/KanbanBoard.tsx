@@ -352,12 +352,12 @@ export default function KanbanBoard({ kanban, personen, correspondents, groupByP
 
         return (
           <div key={person.id}>
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
               <h3 className="font-semibold text-gray-800 dark:text-gray-100">{person.name}</h3>
               <span className="text-xs text-gray-500 dark:text-gray-400">
                 {count} Rechnung{count !== 1 ? 'en' : ''} · {formatSumme(personSummen)}
               </span>
-              <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+              <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700 hidden sm:block" />
             </div>
             <KanbanColumnsSimple
               kanban={personKanban}

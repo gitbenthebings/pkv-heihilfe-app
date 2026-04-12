@@ -53,7 +53,7 @@ export default function RechnungForm({ personen, correspondents, onSubmit, onCan
     <form onSubmit={handleSubmit} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 mb-4">
       <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neue Rechnung</h3>
       {error && <p className="text-red-600 dark:text-red-400 text-sm mb-3">{error}</p>}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {field('Person',
           <select className={inputClass} value={form.person_id}
             onChange={e => setForm(f => ({ ...f, person_id: e.target.value }))}>
