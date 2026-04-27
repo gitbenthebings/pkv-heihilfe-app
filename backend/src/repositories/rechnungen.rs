@@ -4,7 +4,8 @@ use chrono::Utc;
 const SELECT: &str = "SELECT id, mandant_id, person_id, leistungserbringer_id, typ, betrag, datum,
                        zahlungsziel, bezahlt_am, beihilfe_eingereicht_am, pkv_eingereicht_am, notiz,
                        archiviert_am, referenz_nr, beihilfe_erstattet_betrag, pkv_erstattet_betrag,
-                       pkv_gescannt, beihilfe_gescannt
+                       pkv_gescannt, beihilfe_gescannt, pkv_verzicht,
+                       paperless_doc_id, paperless_uebertragen_am
                        FROM rechnung";
 
 /// Leerer String in UpdateRechnung → NULL in DB
@@ -129,6 +130,7 @@ pub async fn update(
         .unwrap_or(if pkv_wird_eingereicht { true } else { existing.pkv_gescannt });
     let beihilfe_gescannt = input.beihilfe_gescannt
         .unwrap_or(if bh_wird_eingereicht { true } else { existing.beihilfe_gescannt });
+    let pkv_verzicht = input.pkv_verzicht.unwrap_or(existing.pkv_verzicht);
 
     // None = nicht im Request → bestehenden Wert behalten
     // Some(None) = null im Request → auf NULL setzen
@@ -145,7 +147,8 @@ pub async fn update(
     sqlx::query(
         "UPDATE rechnung SET bezahlt_am = ?, beihilfe_eingereicht_am = ?, pkv_eingereicht_am = ?,
          notiz = ?, betrag = ?, datum = ?, zahlungsziel = ?, leistungserbringer_id = ?, typ = ?, person_id = ?,
-         beihilfe_erstattet_betrag = ?, pkv_erstattet_betrag = ?, pkv_gescannt = ?, beihilfe_gescannt = ?
+         beihilfe_erstattet_betrag = ?, pkv_erstattet_betrag = ?, pkv_gescannt = ?, beihilfe_gescannt = ?,
+         pkv_verzicht = ?
          WHERE id = ? AND mandant_id = ?"
     )
     .bind(bezahlt_am)
@@ -162,6 +165,7 @@ pub async fn update(
     .bind(pkv_erstattet)
     .bind(pkv_gescannt)
     .bind(beihilfe_gescannt)
+    .bind(pkv_verzicht)
     .bind(id)
     .bind(mandant_id)
     .execute(db)
@@ -180,6 +184,23 @@ pub async fn delete(db: &Db, id: &str, mandant_id: &str) -> Result<(), AppError>
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    Ok(())
+}
+
+pub async fn update_paperless_ref(
+    db: &Db,
+    id: &str,
+    doc_id: Option<i64>,
+    uebertragen_am: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE rechnung SET paperless_doc_id = ?, paperless_uebertragen_am = ? WHERE id = ?"
+    )
+    .bind(doc_id)
+    .bind(uebertragen_am)
+    .bind(id)
+    .execute(db)
+    .await?;
     Ok(())
 }
 

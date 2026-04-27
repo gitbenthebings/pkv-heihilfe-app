@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use crate::{
     auth::AuthUser,
     errors::AppError,
-    models::{CreateRechnung, UpdateRechnung, BulkActionRequest, RechnungMitStatus},
+    models::{CreateRechnung, UpdateRechnung, BulkActionRequest, BulkAction, RechnungMitStatus},
     repositories::{self, personen::list_by_mandant},
-    services::rechnungen::mit_status,
+    services::{paperless, rechnungen::mit_status},
     AppState,
 };
 
@@ -96,6 +96,9 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
     repositories::rechnungen::delete(&state.db, &id, &auth.mandant_id).await?;
+    // Uploads-Verzeichnis der Rechnung aufräumen (best-effort)
+    let dir = state.uploads_dir.join(&id);
+    tokio::fs::remove_dir_all(&dir).await.ok();
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -111,6 +114,37 @@ pub async fn bulk_action(
         &body.action,
     )
     .await?;
+
+    if body.action == BulkAction::Archivieren {
+        let db_url = repositories::einstellungen::get(&state.db, "paperless_ngx_url").await.ok().flatten();
+        let db_token = repositories::einstellungen::get(&state.db, "paperless_ngx_token").await.ok().flatten();
+        let url = db_url.or_else(|| state.paperless_ngx_url.clone());
+        let token = db_token.or_else(|| state.paperless_ngx_token.clone());
+
+        if let (Some(url), Some(token)) = (url, token) {
+            let db = state.db.clone();
+            let uploads_dir = state.uploads_dir.clone();
+            let ids = body.ids.clone();
+            let mandant_id = auth.mandant_id.clone();
+
+            tokio::spawn(async move {
+                for id in &ids {
+                    if let Err(e) = paperless::upload_anhaenge(
+                        &db,
+                        &uploads_dir,
+                        &url,
+                        &token,
+                        id,
+                        &mandant_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!("Paperless-Upload fehlgeschlagen für Rechnung {id}: {e}");
+                    }
+                }
+            });
+        }
+    }
 
     Ok(Json(serde_json::json!({ "updated": count })))
 }

@@ -3,11 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getRechnungen, createRechnung, updateRechnung, deleteRechnung, bulkAction } from '../api/rechnungen'
 import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
+import { getConfig } from '../api/config'
+import { exportRechnungen } from '../api/export'
 import RechnungenTable from '../components/RechnungenTable'
 import PersonFilter from '../components/PersonFilter'
 import BulkActionBar from '../components/BulkActionBar'
 import RechnungForm from '../components/RechnungForm'
 import type { BulkAction, CreateRechnung, UpdateRechnung } from '../types'
+import type { ExportProvider, ExportResult } from '../api/export'
 
 export default function RechnungenPage() {
   const qc = useQueryClient()
@@ -15,14 +18,23 @@ export default function RechnungenPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showForm, setShowForm] = useState(false)
   const [archivModus, setArchivModus] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null)
 
   const { data: rechnungen = [], isLoading, error } = useQuery({
     queryKey: ['rechnungen', selectedPersonId, archivModus],
     queryFn: () => getRechnungen(selectedPersonId, archivModus),
+    refetchInterval: (query) => {
+      if (!archivModus || !config?.paperless_ngx_url) return false
+      const data = query.state.data ?? []
+      const hatAusstehend = data.some(r => r.archiviert_am && !r.paperless_uebertragen_am)
+      return hatAusstehend ? 5000 : false
+    },
   })
 
   const { data: personen = [] } = useQuery({ queryKey: ['personen'], queryFn: getPersonen })
   const { data: correspondents = [] } = useQuery({ queryKey: ['correspondents'], queryFn: getCorrespondents })
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig, staleTime: Infinity })
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['rechnungen'] })
@@ -70,6 +82,19 @@ export default function RechnungenPage() {
 
   const handleBulkAction = (action: BulkAction) => {
     bulkMutation.mutate({ ids: Array.from(selectedIds), action })
+  }
+
+  const handleExport = async (provider: ExportProvider) => {
+    setExporting(true)
+    setExportResult(null)
+    try {
+      const result = await exportRechnungen(Array.from(selectedIds), provider)
+      setExportResult(result)
+    } catch (e) {
+      setExportResult({ provider, exported_files: 0, skipped_invoices: 0, directory: null, folder_url: null })
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -142,6 +167,31 @@ export default function RechnungenPage() {
         />
       )}
 
+      {exportResult && (
+        <div className={`flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${
+          exportResult.exported_files > 0
+            ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-700 text-teal-800 dark:text-teal-200'
+            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700 text-red-700 dark:text-red-300'
+        }`}>
+          <span>
+            {exportResult.exported_files > 0 ? (
+              <>
+                {exportResult.exported_files} Datei{exportResult.exported_files !== 1 ? 'en' : ''} exportiert
+                {exportResult.directory && <> → <code className="font-mono text-xs">/exports/{exportResult.directory}</code></>}
+                {exportResult.folder_url && (
+                  <> → <a href={exportResult.folder_url} target="_blank" rel="noreferrer"
+                    className="underline">Google Drive öffnen</a></>
+                )}
+                {exportResult.skipped_invoices > 0 && <> ({exportResult.skipped_invoices} ohne Anhang übersprungen)</>}
+              </>
+            ) : (
+              'Export fehlgeschlagen oder keine Anhänge vorhanden.'
+            )}
+          </span>
+          <button onClick={() => setExportResult(null)} className="shrink-0 opacity-60 hover:opacity-100">×</button>
+        </div>
+      )}
+
       {isLoading && <p className="text-gray-500 dark:text-gray-400 text-sm">Lade Rechnungen...</p>}
       {error && <p className="text-red-600 dark:text-red-400 text-sm">Fehler: {(error as Error).message}</p>}
 
@@ -165,6 +215,7 @@ export default function RechnungenPage() {
             onDelete={handleDelete}
             onArchivToggle={handleArchivToggle}
             archivModus={archivModus}
+            paperlessNgxUrl={config?.paperless_ngx_url}
           />
         </div>
       )}
@@ -172,9 +223,12 @@ export default function RechnungenPage() {
       <BulkActionBar
         count={selectedIds.size}
         onAction={handleBulkAction}
+        onExport={handleExport}
         onClear={() => setSelectedIds(new Set())}
         loading={bulkMutation.isPending}
+        exporting={exporting}
         archivModus={archivModus}
+        gdriveConfigured={config?.gdrive_configured}
       />
     </div>
   )

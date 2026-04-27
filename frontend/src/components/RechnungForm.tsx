@@ -91,20 +91,6 @@ export default function RechnungForm({ personen, correspondents, onSubmit, onCan
           <input type="text" className={inputClass} value={form.notiz ?? ''}
             onChange={e => setForm(f => ({ ...f, notiz: e.target.value || undefined }))} />
         )}
-        <div className="flex flex-col gap-2 justify-end">
-          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input type="checkbox" checked={form.pkv_gescannt ?? false}
-              onChange={e => setForm(f => ({ ...f, pkv_gescannt: e.target.checked }))}
-              className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
-            PKV gescannt
-          </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-            <input type="checkbox" checked={form.beihilfe_gescannt ?? false}
-              onChange={e => setForm(f => ({ ...f, beihilfe_gescannt: e.target.checked }))}
-              className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
-            Beihilfe gescannt
-          </label>
-        </div>
       </div>
       <div className="flex gap-2 mt-4">
         <button type="submit" disabled={loading}

@@ -43,20 +43,23 @@ pkv-app/
 │   ├── Dockerfile
 │   ├── migrations/
 │   │   ├── 0001_init.sql
-│   │   ├── 0002_archiv.sql      ← archiviert_am zu rechnung
-│   │   ├── 0003_referenz.sql    ← referenz_nr zu rechnung
-│   │   ├── 0004_erstattet.sql   ← beihilfe_erstattet_betrag, pkv_erstattet_betrag
-│   │   ├── 0005_gescannt.sql    ← gescannt-Flag (später umbenannt)
-│   │   └── 0006_gescannt_split.sql ← gescannt → pkv_gescannt + beihilfe_gescannt
+│   │   ├── 0002_archiv.sql          ← archiviert_am zu rechnung
+│   │   ├── 0003_referenz.sql        ← referenz_nr zu rechnung
+│   │   ├── 0004_erstattet.sql       ← beihilfe_erstattet_betrag, pkv_erstattet_betrag
+│   │   ├── 0005_gescannt.sql        ← gescannt-Flag (später umbenannt)
+│   │   ├── 0006_gescannt_split.sql  ← gescannt → pkv_gescannt + beihilfe_gescannt
+│   │   ├── 0007_anhaenge.sql        ← anhang-Tabelle (PDF-Uploads)
+│   │   └── 0008_bre_schwelle.sql    ← bre_schwelle zu person
 │   └── src/
 │       ├── main.rs
-│       ├── config.rs
-│       ├── errors.rs            ← AppError; FK-Verletzung → 409 Conflict
-│       ├── auth/mod.rs          ← JWT erstellen/prüfen, AuthUser-Extractor
+│       ├── config.rs                ← Config inkl. MULTIPAGE_SCAN, UPLOADS_DIR
+│       ├── errors.rs                ← AppError; FK-Verletzung → 409 Conflict
+│       ├── auth/mod.rs              ← JWT erstellen/prüfen, AuthUser-Extractor
 │       ├── db/mod.rs
-│       ├── seed.rs              ← bootstrap(): seed.json oder Env-Variablen
+│       ├── seed.rs                  ← bootstrap(): seed.json oder Env-Variablen
 │       ├── models/
 │       │   ├── mod.rs
+│       │   ├── anhang.rs
 │       │   ├── benutzer.rs
 │       │   ├── beihilfestelle.rs
 │       │   ├── correspondent.rs
@@ -64,17 +67,20 @@ pkv-app/
 │       │   └── rechnung.rs
 │       ├── handlers/
 │       │   ├── mod.rs
+│       │   ├── anhaenge.rs          ← upload, list, serve, delete; max 20 MB; nur PDF
 │       │   ├── auth.rs
 │       │   ├── benutzer.rs
 │       │   ├── beihilfestellen.rs
+│       │   ├── config.rs            ← GET /api/config (öffentlich, kein JWT)
 │       │   ├── personen.rs
 │       │   ├── correspondents.rs
 │       │   ├── rechnungen.rs
 │       │   └── dashboard.rs
 │       ├── services/
-│       │   └── rechnungen.rs    ← mit_status(), kanban_gruppe()
+│       │   └── rechnungen.rs        ← mit_status(), kanban_gruppe()
 │       └── repositories/
 │           ├── mod.rs
+│           ├── anhaenge.rs
 │           ├── benutzer.rs
 │           ├── beihilfestellen.rs
 │           ├── personen.rs
@@ -88,23 +94,27 @@ pkv-app/
         ├── App.tsx
         ├── main.tsx
         ├── api/
-        │   ├── client.ts
+        │   ├── anhaenge.ts          ← getAnhaenge, uploadAnhang, deleteAnhang, fetchAnhangBlob
         │   ├── auth.ts
         │   ├── benutzer.ts
         │   ├── beihilfestellen.ts
+        │   ├── client.ts
+        │   ├── config.ts            ← getConfig(): AppConfig (gecacht); kein Auth-Token nötig
         │   ├── correspondents.ts
+        │   ├── dashboard.ts
         │   ├── personen.ts
-        │   ├── rechnungen.ts    ← getRechnungen(personId?, archiviert?)
-        │   └── dashboard.ts
+        │   └── rechnungen.ts        ← getRechnungen(personId?, archiviert?)
         ├── components/
-        │   ├── BulkActionBar.tsx    ← archivModus-Prop steuert sichtbare Aktionen; mobile: verkürzte Labels
+        │   ├── AnhangUpload.tsx     ← PDF-Upload + Scan-Editor-Integration; compact-Prop
+        │   ├── BulkActionBar.tsx    ← archivModus-Prop; mobile: verkürzte Labels
         │   ├── FinanzOverview.tsx
         │   ├── KanbanBoard.tsx      ← groupByPerson-Prop
         │   ├── KanbanFilter.tsx     ← useKanbanFilter(), filterKanban(); URL-State
         │   ├── Layout.tsx
         │   ├── PersonFilter.tsx
-        │   ├── RechnungenTable.tsx  ← client-seitig sortierbar; mobile: Kartenansicht (sm:hidden/hidden sm:block)
+        │   ├── RechnungenTable.tsx  ← client-seitig sortierbar; mobile: Kartenansicht
         │   ├── RechnungForm.tsx
+        │   ├── ScanEditor.tsx       ← Vollbild-Editor: Zuschneiden, Drehen, Mehrseiten
         │   └── StatusBadge.tsx
         ├── hooks/
         │   ├── useAuth.ts
@@ -114,8 +124,10 @@ pkv-app/
         │   ├── LoginPage.tsx
         │   ├── RechnungenPage.tsx   ← Aktiv/Archiv-Toggle
         │   └── StammdatenPage.tsx   ← Tabs: Personen, Leistungserbringer, Beihilfestellen, Benutzer
-        └── types/
-            └── index.ts
+        ├── types/
+        │   └── index.ts
+        └── utils/
+            └── imageToGrayscalePdf.ts  ← fileToGrayscalePdf(), canvasesToPdf()
 ```
 
 ---
@@ -185,9 +197,10 @@ benutzer (id, mandant_id, name, email, passwort_hash)
 beihilfestelle (id, mandant_id, name, dienstherr_typ)
 -- dienstherr_typ: 'bund' | 'land' | 'kommune'
 
-person (id, mandant_id, name, geburtsdatum, typ, beihilfestelle_id, beihilfe_satz, pkv_satz)
+person (id, mandant_id, name, geburtsdatum, typ, beihilfestelle_id, beihilfe_satz, pkv_satz, bre_schwelle)
 -- typ: 'erwachsener' | 'kind'
 -- beihilfestelle_id: NULLABLE
+-- bre_schwelle: REAL, NULLABLE; Belastungsgrenze in Euro (Migration 0008)
 
 correspondent (id, mandant_id, name, typ)
 -- typ: 'arzt' | 'krankenhaus' | 'apotheke' | 'abrechnungsstelle'
@@ -207,21 +220,24 @@ rechnung (
   notiz,                        -- Freitext, optional
   archiviert_am,                -- NULL = aktiv; gesetzt = archiviert (Migration 0002)
   referenz_nr,                  -- INTEGER, fortlaufend pro Mandant, auto-generiert (Migration 0003)
-  beihilfe_erstattet_betrag,    -- REAL, nullable; tatsächlich erstatteter Beihilfebetrag (Migration 0004)
-  pkv_erstattet_betrag,         -- REAL, nullable; tatsächlich erstatteter PKV-Betrag (Migration 0004)
-  pkv_gescannt,                 -- INTEGER NOT NULL DEFAULT 0; Rechnung für PKV eingescannt (Migration 0005/0006)
-  beihilfe_gescannt             -- INTEGER NOT NULL DEFAULT 0; Rechnung für Beihilfe eingescannt (Migration 0006)
+  beihilfe_erstattet_betrag,    -- REAL, nullable (Migration 0004)
+  pkv_erstattet_betrag,         -- REAL, nullable (Migration 0004)
+  pkv_gescannt,                 -- INTEGER NOT NULL DEFAULT 0 (Migration 0005/0006)
+  beihilfe_gescannt             -- INTEGER NOT NULL DEFAULT 0 (Migration 0006)
 )
 
+anhang (id, mandant_id, rechnung_id, dateiname, pfad, groesse, erstellt_am)
+-- Datei liegt unter UPLOADS_DIR/{rechnung_id}/{id}.pdf (Migration 0007)
+
 -- Status wird BERECHNET (nicht gespeichert):
--- zahlung_status:          'offen' | 'bezahlt'              ← aus bezahlt_am
--- beihilfe_status:         'offen' | 'eingereicht' | NULL   ← aus beihilfe_eingereicht_am
--- pkv_status:              'offen' | 'eingereicht'          ← aus pkv_eingereicht_am
--- archiviert_status:       'aktiv' | 'archiviert'           ← aus archiviert_am
+-- zahlung_status:           'offen' | 'bezahlt'             ← aus bezahlt_am
+-- beihilfe_status:          'offen' | 'eingereicht' | NULL  ← aus beihilfe_eingereicht_am
+-- pkv_status:               'offen' | 'eingereicht'         ← aus pkv_eingereicht_am
+-- archiviert_status:        'aktiv' | 'archiviert'          ← aus archiviert_am
 -- beihilfe_anteil_erwartet: betrag * beihilfe_satz / 100    ← NULL wenn keine Beihilfestelle
--- pkv_anteil_erwartet:     betrag * pkv_satz / 100
--- beihilfe_differenz:      beihilfe_erstattet_betrag − beihilfe_anteil_erwartet (NULL wenn kein Erstattungsbetrag)
--- pkv_differenz:           pkv_erstattet_betrag − pkv_anteil_erwartet (NULL wenn kein Erstattungsbetrag)
+-- pkv_anteil_erwartet:      betrag * pkv_satz / 100
+-- beihilfe_differenz:       beihilfe_erstattet_betrag − beihilfe_anteil_erwartet
+-- pkv_differenz:            pkv_erstattet_betrag − pkv_anteil_erwartet
 ```
 
 ---
@@ -229,13 +245,15 @@ rechnung (
 ## API-Routen
 
 ```
+GET    /api/config                              ← öffentlich (kein JWT); gibt { multipage_scan: bool }
+
 POST   /api/auth/login
 
 GET    /api/benutzer
 POST   /api/benutzer
 PATCH  /api/benutzer/:id
-POST   /api/benutzer/:id/passwort   ← altes_passwort + neues_passwort
-DELETE /api/benutzer/:id            ← eigener Account nicht löschbar
+POST   /api/benutzer/:id/passwort              ← altes_passwort + neues_passwort
+DELETE /api/benutzer/:id                       ← eigener Account nicht löschbar
 
 GET    /api/beihilfestellen
 POST   /api/beihilfestellen
@@ -252,14 +270,47 @@ POST   /api/correspondents
 PATCH  /api/correspondents/:id
 DELETE /api/correspondents/:id
 
-GET    /api/rechnungen?person_id=&archiviert=   ← archiviert=true liefert nur archivierte
+GET    /api/rechnungen?person_id=&archiviert=  ← archiviert=true liefert nur archivierte
 POST   /api/rechnungen
-POST   /api/rechnungen/bulk                     ← BulkActionRequest
+POST   /api/rechnungen/bulk                    ← BulkActionRequest
 PATCH  /api/rechnungen/:id
 DELETE /api/rechnungen/:id
 
+GET    /api/rechnungen/:id/anhaenge            ← Liste der Anhänge
+POST   /api/rechnungen/:id/anhaenge            ← PDF-Upload (multipart, max 20 MB)
+GET    /api/rechnungen/:id/anhaenge/:aid       ← PDF ausliefern (inline)
+DELETE /api/rechnungen/:id/anhaenge/:aid
+
 GET    /api/dashboard
 ```
+
+---
+
+## Scan-Funktionalität
+
+### Ablauf
+
+1. Nutzer tippt **"Scannen"** → Kamera öffnet sich (oder **"PDF"** → Datei-Picker)
+2. Foto aufgenommen → **ScanEditor**-Overlay erscheint
+3. Im ScanEditor:
+   - **Zuschneiden**: Rechteck-Handles (4 Ecken + Verschieben) per Pointer-Events
+   - **Automatische Dokumenterkennung**: Sobel-Kantenerkennung auf herunterskaliertem Bild erkennt weißes Papier auf dunklem Hintergrund → Rahmen wird automatisch gesetzt
+   - **Drehen**: Links / Rechts (je 90°)
+   - **Weitere Seite** (nur wenn `MULTIPAGE_SCAN=true`): schließt Editor, öffnet Kamera erneut
+4. **"Hochladen"** / **"Fertig"**: alle Seiten werden zu einer mehrseitigen PDF konvertiert (Graustufen, JPEG-komprimiert) und hochgeladen
+
+### Bildverarbeitung (Frontend, `utils/imageToGrayscalePdf.ts`)
+
+- `fileToGrayscalePdf(file)` — Bilddatei → einseitiges Graustufen-PDF; PDFs werden unverändert durchgereicht
+- `canvasesToPdf(canvases[])` — Canvas-Array → mehrseitiges Graustufen-PDF (max. 2000 px pro Seite, JPEG 0.72)
+
+### ScanEditor (`components/ScanEditor.tsx`)
+
+- Vollbild-Overlay (`fixed inset-0 z-50`)
+- Canvas-basiert: Bild + Crop-Overlay auf einem `<canvas>`; Pointer-Events für Touch & Maus
+- Dokumenterkennung: Sobel auf 400 px breitem Thumbnail → Zeilen-/Spaltensummen → Bounding Box
+- Fallback wenn keine klare Grenze erkannt: 12 % Einzug (gut greifbare Handles)
+- Props: `file`, `multipageEnabled`, `pageCount`, `onConfirm(canvas, addMore)`, `onCancel`
 
 ---
 
@@ -272,6 +323,7 @@ GET    /api/dashboard
 5. `referenz_nr` wird beim Erstellen automatisch vergeben: `MAX(referenz_nr) + 1` pro Mandant
 6. Löschen von referenzierten Stammdaten (Person, Correspondent, Beihilfestelle) → 409 Conflict
 7. Benutzer können sich nicht selbst löschen
+8. Anhänge: nur PDF-Upload erlaubt (Magic-Bytes-Prüfung im Backend); Bilder werden im Frontend vor dem Upload zu PDF konvertiert
 
 ---
 
@@ -283,7 +335,7 @@ GET    /api/dashboard
 - **Massenaktionen** via BulkActionBar (fixiert am unteren Bildschirmrand bei Selektion)
 - **Kanban-Filter** (immer sichtbar, kein Modal): Person, Typ, Korrespondent, Zeitraum; URL-State
 - **Kanban-Gruppierung**: umschaltbar zwischen "Nach Status" und "Nach Person"
-- Stammdaten über Tab-Interface in der Stammdaten-Seite (Personen / Leistungserbringer / Beihilfestellen / Benutzer)
+- Stammdaten über Tab-Interface (Personen / Leistungserbringer / Beihilfestellen / Benutzer)
 - Fehlermeldungen bei fehlgeschlagenen Löschoperationen inline als rotes Banner
 - **Mobile-First**: alle Seiten für Smartphone optimiert (Breakpoint `sm` = 640px)
 
@@ -292,11 +344,12 @@ GET    /api/dashboard
 | Komponente | Mobile | Desktop (sm+) |
 |---|---|---|
 | `RechnungenTable` | Kartenansicht (`sm:hidden`) mit Inline-Bearbeitungsformular | Tabelle (`hidden sm:block`) |
+| `StammdatenPage` alle Tabs | Kartenansicht (`sm:hidden`) mit Inline-Bearbeitungsformular | Tabelle (`hidden sm:block`) |
 | `RechnungForm` | 1-spaltig (`grid-cols-1`) | 2–4-spaltig |
 | `BulkActionBar` | Kurze Labels (Bezahlt / Beihilfe / PKV) | Lange Labels |
 | `KanbanFilter` | Größere Touch-Targets, Dropdowns `w-[min(95vw,13rem)]` | Normal |
-| `StammdatenPage` Formulare | 1-spaltig | 2–3-spaltig |
 | `StammdatenPage` Tabs | Horizontal scrollbar (`overflow-x-auto`) | Normal |
+| `ScanEditor` | Vollbild, Touch-optimierte Handles (32 px Tap-Radius) | Vollbild (selten genutzt) |
 
 ---
 
@@ -330,9 +383,16 @@ docker compose -f docker-compose.release.yml up -d
 Konfiguration über `.env` (Vorlage: `.env.example`):
 ```
 JWT_SECRET=<zufälliger 32+ Zeichen langer String>
-PORT=3000      # Backend-Port
-UI_PORT=8090   # Frontend-Port
+PORT=3000            # Backend-Port
+UI_PORT=8090         # Frontend-Port
+MULTIPAGE_SCAN=true  # Mehrseitiger Scan ein- (true) oder ausschalten (false)
+PAPERLESS_NGX_URL=   # Optional: Paperless NGX URL (z.B. http://paperless:8000)
+PAPERLESS_NGX_TOKEN= # Optional: Paperless NGX API-Token
 ```
+
+**Volumes:**
+- `./data` (Bind-Mount): SQLite-Datenbank (`pkv.db`) und `seed.json` → Backup = Datei kopieren
+- `uploads` (named Volume): Hochgeladene PDFs unter `/uploads/{rechnung_id}/{file_id}.pdf`; per `UPLOADS_DIR=/uploads` konfiguriert
 
 Images für Weitergabe exportieren:
 ```bash
@@ -346,4 +406,4 @@ docker save pkv-app-backend:latest pkv-app-frontend:latest | gzip > release/pkv-
 
 ---
 
-*Letzte Aktualisierung: 2026-04-12 | Version: 1.3*
+*Letzte Aktualisierung: 2026-04-13 | Version: 1.4*

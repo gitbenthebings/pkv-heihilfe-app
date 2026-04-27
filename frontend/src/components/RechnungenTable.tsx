@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import type { Rechnung, Person, Correspondent, UpdateRechnung } from '../types'
 import StatusBadge from './StatusBadge'
+import AnhangUpload from './AnhangUpload'
 
 interface Props {
   rechnungen: Rechnung[]
@@ -13,6 +14,7 @@ interface Props {
   onDelete: (id: string) => Promise<void>
   onArchivToggle: (id: string, archivieren: boolean) => Promise<void>
   archivModus?: boolean
+  paperlessNgxUrl?: string
 }
 
 function formatEuro(betrag: number) {
@@ -40,16 +42,49 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   )
 }
 
+function PaperlessBadge({ r, paperlessNgxUrl }: { r: Rechnung; paperlessNgxUrl?: string }) {
+  if (r.paperless_uebertragen_am) {
+    const datum = formatDate(r.paperless_uebertragen_am)
+    if (r.paperless_doc_id && paperlessNgxUrl) {
+      const url = `${paperlessNgxUrl.replace(/\/$/, '')}/documents/${r.paperless_doc_id}/`
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300 hover:bg-teal-200 dark:hover:bg-teal-800/60 transition-colors"
+          title={`In Paperless öffnen · Übertragen am ${datum}`}>
+          <span>Paperless</span>
+          <span className="opacity-70">#{r.paperless_doc_id}</span>
+        </a>
+      )
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300"
+        title={`Übertragen am ${datum}`}>
+        Paperless ✓
+      </span>
+    )
+  }
+  if (r.archiviert_am && paperlessNgxUrl) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-pulse shrink-0" />
+        Wird übertragen…
+      </span>
+    )
+  }
+  return null
+}
+
 export default function RechnungenTable({
   rechnungen, personen, correspondents,
   selectedIds, onToggleSelect, onToggleAll,
-  onUpdate, onDelete, onArchivToggle, archivModus,
+  onUpdate, onDelete, onArchivToggle, archivModus, paperlessNgxUrl,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<UpdateRechnung>({})
   const [saving, setSaving] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('datum')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [anhangExpandedId, setAnhangExpandedId] = useState<string | null>(null)
 
   const personMap = Object.fromEntries(personen.map(p => [p.id, p]))
   const corrMap = Object.fromEntries(correspondents.map(c => [c.id, c]))
@@ -225,20 +260,6 @@ export default function RechnungenTable({
                           onChange={e => setEditValues(v => ({ ...v, notiz: e.target.value }))} />
                       </div>
                     </div>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                        <input type="checkbox" checked={editValues.beihilfe_gescannt ?? r.beihilfe_gescannt}
-                          onChange={e => setEditValues(v => ({ ...v, beihilfe_gescannt: e.target.checked }))}
-                          className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
-                        BH gescannt
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                        <input type="checkbox" checked={editValues.pkv_gescannt ?? r.pkv_gescannt}
-                          onChange={e => setEditValues(v => ({ ...v, pkv_gescannt: e.target.checked }))}
-                          className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
-                        PKV gescannt
-                      </label>
-                    </div>
                   </div>
                 ) : (
                   /* Mobile View Card */
@@ -274,14 +295,11 @@ export default function RechnungenTable({
                             )}
                           </div>
                         )}
-                        <div className="flex gap-3 mt-1 text-xs">
-                          <span className={r.beihilfe_gescannt ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}>
-                            BH: {r.beihilfe_gescannt ? 'gescannt' : 'nicht gescannt'}
-                          </span>
-                          <span className={r.pkv_gescannt ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}>
-                            PKV: {r.pkv_gescannt ? 'gescannt' : 'nicht gescannt'}
-                          </span>
-                        </div>
+                        {r.paperless_uebertragen_am && (
+                          <div className="mt-1.5">
+                            <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2 mt-2.5 ml-7">
@@ -299,6 +317,10 @@ export default function RechnungenTable({
                         className="flex-1 px-2 py-2 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/30">
                         Löschen
                       </button>
+                    </div>
+                    {/* Anhänge (Mobile) */}
+                    <div className="mt-2 ml-7">
+                      <AnhangUpload rechnungId={r.id} referenzNr={r.referenz_nr} />
                     </div>
                   </div>
                 )}
@@ -338,15 +360,14 @@ export default function RechnungenTable({
               <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">Beihilfe</th>
               <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">PKV</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Notiz</th>
-              <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">BH gescannt</th>
-              <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">PKV gescannt</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">Paperless</th>
               <th className="px-3 py-3" />
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
             {rechnungen.length === 0 && (
               <tr>
-                <td colSpan={12} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">
+                <td colSpan={11} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">
                   Keine Rechnungen vorhanden
                 </td>
               </tr>
@@ -354,7 +375,8 @@ export default function RechnungenTable({
             {sorted.map((r) => {
               const isEditing = editingId === r.id
               return (
-                <tr key={r.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${selectedIds.has(r.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                <React.Fragment key={r.id}>
+                <tr className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${selectedIds.has(r.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                   <td className="px-3 py-3">
                     <input type="checkbox" checked={selectedIds.has(r.id)}
                       onChange={() => onToggleSelect(r.id)}
@@ -442,15 +464,8 @@ export default function RechnungenTable({
                         <input type="text" className={inputClass} value={editValues.notiz ?? ''}
                           onChange={e => setEditValues(v => ({ ...v, notiz: e.target.value }))} />
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        <input type="checkbox" checked={editValues.beihilfe_gescannt ?? r.beihilfe_gescannt}
-                          onChange={e => setEditValues(v => ({ ...v, beihilfe_gescannt: e.target.checked }))}
-                          className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <input type="checkbox" checked={editValues.pkv_gescannt ?? r.pkv_gescannt}
-                          onChange={e => setEditValues(v => ({ ...v, pkv_gescannt: e.target.checked }))}
-                          className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
+                      <td className="px-3 py-2">
+                        <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="flex gap-1">
@@ -503,15 +518,8 @@ export default function RechnungenTable({
                         {r.pkv_anteil_erwartet == null && r.pkv_erstattet_betrag == null ? <span className="text-gray-400">—</span> : null}
                       </td>
                       <td className="px-3 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">{r.notiz ?? '—'}</td>
-                      <td className="px-3 py-3 text-center">
-                        {r.beihilfe_gescannt
-                          ? <span className="text-green-600 dark:text-green-400 text-xs font-medium">Ja</span>
-                          : <span className="text-gray-400 dark:text-gray-500 text-xs">Nein</span>}
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        {r.pkv_gescannt
-                          ? <span className="text-green-600 dark:text-green-400 text-xs font-medium">Ja</span>
-                          : <span className="text-gray-400 dark:text-gray-500 text-xs">Nein</span>}
+                      <td className="px-3 py-3">
+                        <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap">
                         <div className="flex gap-1">
@@ -521,6 +529,13 @@ export default function RechnungenTable({
                               Bearbeiten
                             </button>
                           )}
+                          <button
+                            onClick={() => setAnhangExpandedId(id => id === r.id ? null : r.id)}
+                            className={`px-2 py-1 text-xs border rounded ${anhangExpandedId === r.id ? 'border-gray-400 bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                            title="Anhänge"
+                          >
+                            📎
+                          </button>
                           <button
                             onClick={() => onArchivToggle(r.id, !archivModus)}
                             className="px-2 py-1 text-xs text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700 rounded hover:bg-amber-50 dark:hover:bg-amber-900/30"
@@ -536,11 +551,20 @@ export default function RechnungenTable({
                     </>
                   )}
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+                {/* Anhang-Expandier-Zeile (Desktop) */}
+                {anhangExpandedId === r.id && (
+                  <tr className="bg-gray-50 dark:bg-gray-700/30">
+                    <td colSpan={12} className="px-6 py-3">
+                      <AnhangUpload rechnungId={r.id} compact />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
+  </div>
   )
 }

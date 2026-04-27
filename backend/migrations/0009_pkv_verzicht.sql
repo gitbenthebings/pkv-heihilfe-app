@@ -1,0 +1,1 @@
+ALTER TABLE rechnung ADD COLUMN pkv_verzicht INTEGER NOT NULL DEFAULT 0;

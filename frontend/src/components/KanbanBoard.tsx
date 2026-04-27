@@ -90,14 +90,6 @@ function RechnungsCard({
       </div>
       {!hidePerson && <p className="text-xs text-gray-600 dark:text-gray-300">{person?.name ?? '?'}</p>}
       <p className="text-xs text-gray-500 dark:text-gray-400">{corr?.name ?? '?'}</p>
-      <div className="flex gap-2">
-        <span className={`text-xs ${r.pkv_gescannt ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
-          PKV: {r.pkv_gescannt ? 'ja' : 'nein'}
-        </span>
-        <span className={`text-xs ${r.beihilfe_gescannt ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
-          BH: {r.beihilfe_gescannt ? 'ja' : 'nein'}
-        </span>
-      </div>
     </div>
   )
 }
@@ -124,10 +116,6 @@ function RechnungsRowCompact({
       )}
       <span className="text-gray-600 dark:text-gray-300 truncate flex-1 min-w-0">{corr?.name ?? '?'}</span>
       <span className="text-gray-700 dark:text-gray-200 shrink-0 font-mono text-[11px] whitespace-nowrap tabular-nums">{formatBetragZeile(r)}</span>
-      <div className="flex gap-1 shrink-0">
-        <span title="PKV gescannt" className={`w-2 h-2 rounded-full ${r.pkv_gescannt ? 'bg-green-500 dark:bg-green-400' : 'bg-gray-300 dark:bg-gray-600'}`} />
-        <span title="Beihilfe gescannt" className={`w-2 h-2 rounded-full ${r.beihilfe_gescannt ? 'bg-green-500 dark:bg-green-400' : 'bg-gray-300 dark:bg-gray-600'}`} />
-      </div>
     </div>
   )
 }

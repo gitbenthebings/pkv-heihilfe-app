@@ -1,6 +1,10 @@
+pub mod anhaenge;
 pub mod auth;
 pub mod benutzer;
 pub mod beihilfestellen;
+pub mod config;
+pub mod einstellungen;
+pub mod export;
 pub mod personen;
 pub mod correspondents;
 pub mod rechnungen;

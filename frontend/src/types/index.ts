@@ -108,6 +108,9 @@ export interface Rechnung {
   pkv_differenz: number | null
   pkv_gescannt: boolean
   beihilfe_gescannt: boolean
+  pkv_verzicht: boolean
+  paperless_doc_id: number | null
+  paperless_uebertragen_am: string | null
 }
 
 export interface KanbanBoard {
@@ -145,6 +148,14 @@ export interface DashboardData {
   bre: BreIndikator[]
 }
 
+export interface Anhang {
+  id: string
+  rechnung_id: string
+  dateiname: string
+  groesse: number
+  hochgeladen_am: string
+}
+
 export type BulkAction = 'bezahlt' | 'beihilfe_eingereicht' | 'pkv_eingereicht' | 'archivieren' | 'dearchivieren'
 
 export interface CreateRechnung {
@@ -174,4 +185,5 @@ export interface UpdateRechnung {
   pkv_erstattet_betrag?: number | null
   pkv_gescannt?: boolean
   beihilfe_gescannt?: boolean
+  pkv_verzicht?: boolean
 }

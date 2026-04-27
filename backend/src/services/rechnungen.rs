@@ -61,6 +61,9 @@ pub fn mit_status(rechnung: Rechnung, person: &Person) -> RechnungMitStatus {
         pkv_erstattet_betrag: rechnung.pkv_erstattet_betrag,
         pkv_gescannt: rechnung.pkv_gescannt,
         beihilfe_gescannt: rechnung.beihilfe_gescannt,
+        pkv_verzicht: rechnung.pkv_verzicht,
+        paperless_doc_id: rechnung.paperless_doc_id,
+        paperless_uebertragen_am: rechnung.paperless_uebertragen_am,
     }
 }
 

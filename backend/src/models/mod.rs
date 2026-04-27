@@ -1,3 +1,4 @@
+pub mod anhang;
 pub mod beihilfestelle;
 pub mod benutzer;
 pub mod person;

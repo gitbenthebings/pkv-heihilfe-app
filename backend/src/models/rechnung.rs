@@ -33,6 +33,9 @@ pub struct Rechnung {
     pub pkv_erstattet_betrag: Option<f64>,
     pub pkv_gescannt: bool,
     pub beihilfe_gescannt: bool,
+    pub pkv_verzicht: bool,
+    pub paperless_doc_id: Option<i64>,
+    pub paperless_uebertragen_am: Option<String>,
 }
 
 /// Für API-Antworten: mit berechnetem Status, Eurobetrag und Derived Fields
@@ -65,6 +68,9 @@ pub struct RechnungMitStatus {
     pub pkv_differenz: Option<f64>,
     pub pkv_gescannt: bool,
     pub beihilfe_gescannt: bool,
+    pub pkv_verzicht: bool,
+    pub paperless_doc_id: Option<i64>,
+    pub paperless_uebertragen_am: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +104,7 @@ pub struct UpdateRechnung {
     pub person_id: Option<String>,
     pub pkv_gescannt: Option<bool>,
     pub beihilfe_gescannt: Option<bool>,
+    pub pkv_verzicht: Option<bool>,
     #[serde(default, deserialize_with = "double_option")]
     pub beihilfe_erstattet_betrag: Option<Option<f64>>,
     #[serde(default, deserialize_with = "double_option")]
