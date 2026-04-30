@@ -17,8 +17,9 @@ services:
       PAPERLESS_NGX_URL: ${PAPERLESS_NGX_URL:-}           # Paperless NGX URL, z.B. http://paperless:8000
       PAPERLESS_NGX_TOKEN: ${PAPERLESS_NGX_TOKEN:-}       # API-Token aus Paperless NGX
     networks:
-      - default
-      - proxy-net
+      default:
+      proxy-net:
+        ipv4_address: 10.10.10.6
     restart: unless-stopped
 
   frontend:

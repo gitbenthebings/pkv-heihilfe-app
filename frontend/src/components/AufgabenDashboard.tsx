@@ -1,14 +1,17 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CreditCard, FileText, Clock, Scale, CheckCircle2,
-  CheckCircle, Send, RotateCcw, Archive, ChevronDown, ChevronRight,
+  CheckCircle, Send, Archive, ChevronDown, ChevronRight, RotateCcw, PauseCircle,
 } from 'lucide-react'
 import { getRechnungen, updateRechnung, bulkAction } from '../api/rechnungen'
 import { getAnhaenge } from '../api/anhaenge'
 import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
-import { groupIntoAufgabenBuckets, type BucketKey, type AufgabenBucket } from '../utils/aufgabenBuckets'
+import {
+  groupIntoBuckets,
+  type BucketKey, type BefuellterBucket,
+} from '../utils/aufgabenBuckets'
 import { applyAufgabenFilter, defaultAufgabenFilter, type AufgabenFilter } from '../utils/aufgabenFilter'
 import { berechneFinanzKennzahlen } from '../utils/finanzStatus'
 import AufgabenFilterleiste from './AufgabenFilterleiste'
@@ -34,46 +37,41 @@ function formatDatum(s: string) {
 // ─── Styling ──────────────────────────────────────────────────────────────────
 
 const BUCKET_COLORS: Record<BucketKey, string> = {
-  zu_bezahlen: 'text-amber-600 dark:text-amber-400',
-  beihilfe_einreichen: 'text-blue-600 dark:text-blue-400',
-  beihilfe_bescheid_ausstehend: 'text-gray-500 dark:text-gray-400',
-  pkv_entscheidung: 'text-violet-600 dark:text-violet-400',
-  pkv_abrechnung_ausstehend: 'text-gray-500 dark:text-gray-400',
+  zu_bezahlen:        'text-amber-600 dark:text-amber-400',
+  beihilfe_einreichen:'text-blue-600 dark:text-blue-400',
+  warten_beihilfe:    'text-gray-500 dark:text-gray-400',
+  pkv_einreichen:     'text-violet-600 dark:text-violet-400',
+  warten_pkv:         'text-gray-500 dark:text-gray-400',
   bereit_archivieren: 'text-green-600 dark:text-green-400',
 }
 
 const BUCKET_BG: Record<BucketKey, string> = {
-  zu_bezahlen: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700',
-  beihilfe_einreichen: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700',
-  beihilfe_bescheid_ausstehend: 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600',
-  pkv_entscheidung: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700',
-  pkv_abrechnung_ausstehend: 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600',
+  zu_bezahlen:        'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700',
+  beihilfe_einreichen:'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700',
+  warten_beihilfe:    'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600',
+  pkv_einreichen:     'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700',
+  warten_pkv:         'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600',
   bereit_archivieren: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700',
 }
 
 const BUCKET_CHIP: Record<BucketKey, string> = {
-  zu_bezahlen: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
-  beihilfe_einreichen: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
-  beihilfe_bescheid_ausstehend: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
-  pkv_entscheidung: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
-  pkv_abrechnung_ausstehend: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
+  zu_bezahlen:        'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+  beihilfe_einreichen:'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+  warten_beihilfe:    'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
+  pkv_einreichen:     'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
+  warten_pkv:         'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
   bereit_archivieren: 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
 }
-
-const WARTE_BUCKETS: Set<BucketKey> = new Set([
-  'beihilfe_bescheid_ausstehend',
-  'pkv_abrechnung_ausstehend',
-])
 
 function BucketIcon({ k, cls }: { k: BucketKey; cls: string }) {
   const props = { className: `w-4 h-4 ${cls}`, strokeWidth: 1.75 }
   switch (k) {
-    case 'zu_bezahlen': return <CreditCard {...props} />
+    case 'zu_bezahlen':         return <CreditCard {...props} />
     case 'beihilfe_einreichen': return <FileText {...props} />
-    case 'beihilfe_bescheid_ausstehend': return <Clock {...props} />
-    case 'pkv_entscheidung': return <Scale {...props} />
-    case 'pkv_abrechnung_ausstehend': return <Clock {...props} />
-    case 'bereit_archivieren': return <CheckCircle2 {...props} />
+    case 'warten_beihilfe':     return <Clock {...props} />
+    case 'pkv_einreichen':      return <Scale {...props} />
+    case 'warten_pkv':          return <Clock {...props} />
+    case 'bereit_archivieren':  return <CheckCircle2 {...props} />
   }
 }
 
@@ -113,7 +111,6 @@ interface ErstattungInputProps {
 function ErstattungInput({ rechnungId, feld, erwartet, loading, onSave }: ErstattungInputProps) {
   const [wert, setWert] = useState('')
   const [saving, setSaving] = useState(false)
-
   const label = feld === 'beihilfe_erstattet_betrag' ? 'Beihilfe' : 'PKV'
 
   async function handleSave() {
@@ -128,27 +125,19 @@ function ErstattungInput({ rechnungId, feld, erwartet, loading, onSave }: Erstat
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') handleSave()
-  }
-
   const isLoading = loading || saving
-
   return (
     <div className="flex items-center gap-1 shrink-0">
       {erwartet !== null && (
         <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums whitespace-nowrap hidden sm:inline">
-          erw. {erwartet.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+          erw. {formatEuro(erwartet)}
         </span>
       )}
       <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded overflow-hidden min-h-[36px]">
         <input
-          type="text"
-          inputMode="decimal"
-          placeholder="0,00"
-          value={wert}
-          onChange={e => setWert(e.target.value)}
-          onKeyDown={handleKeyDown}
+          type="text" inputMode="decimal" placeholder="0,00"
+          value={wert} onChange={e => setWert(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSave()}
           disabled={isLoading}
           className="w-20 px-2 py-1 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none disabled:opacity-50"
         />
@@ -170,18 +159,18 @@ function ErstattungInput({ rechnungId, feld, erwartet, loading, onSave }: Erstat
 
 // ─── Rechnungszeile ────────────────────────────────────────────────────────────
 
-interface RechnungZeileProps {
-  r: Rechnung
-  correspondentsById: Map<string, Correspondent>
-  personenById: Map<string, Person>
-  action?: React.ReactNode
-  dimmed?: boolean
-}
-
 const TYP_LABEL: Record<string, string> = { arzt: 'Arzt', apotheke: 'Apotheke', krankenhaus: 'Krankenhaus' }
 
 function formatRef(nr: number | null) {
   return nr != null ? `R-${String(nr).padStart(4, '0')}` : null
+}
+
+interface RechnungZeileProps {
+  r: Rechnung
+  correspondentsById: Map<string, Correspondent>
+  personenById: Map<string, Person>
+  action?: ReactNode
+  dimmed?: boolean
 }
 
 function RechnungZeile({ r, correspondentsById, personenById, action, dimmed }: RechnungZeileProps) {
@@ -233,80 +222,68 @@ function RechnungZeile({ r, correspondentsById, personenById, action, dimmed }: 
   )
 }
 
-// ─── PKV-Entscheidung Sektion (Sonderbehandlung) ──────────────────────────────
+// ─── PKV-Einreichen Sektion (Sonderbehandlung: gruppiert nach Person + Bulk) ──
 
-interface PkvEntscheidungSektionProps {
-  bucket: AufgabenBucket
+interface PkvEinreichenSektionProps {
+  aktive: Rechnung[]
+  zurueckgestellt: Rechnung[]
   personenById: Map<string, Person>
   correspondentsById: Map<string, Correspondent>
   onUpdate: (id: string, patch: object) => Promise<void>
   loading: Set<string>
 }
 
-function PkvEntscheidungSektion({ bucket, personenById, correspondentsById, onUpdate, loading }: PkvEntscheidungSektionProps) {
-  const [showZurueckgestellt, setShowZurueckgestellt] = useState<Set<string>>(new Set())
+function PkvEinreichenSektion({
+  aktive, zurueckgestellt, personenById, correspondentsById, onUpdate, loading,
+}: PkvEinreichenSektionProps) {
+  const [showZurueck, setShowZurueck] = useState<Set<string>>(new Set())
   const [bulkLoading, setBulkLoading] = useState<Set<string>>(new Set())
 
   const aktivNachPerson = new Map<string, Rechnung[]>()
-  for (const r of bucket.aktive) {
-    const pid = r.person_id
-    if (!aktivNachPerson.has(pid)) aktivNachPerson.set(pid, [])
-    aktivNachPerson.get(pid)!.push(r)
+  for (const r of aktive) {
+    if (!aktivNachPerson.has(r.person_id)) aktivNachPerson.set(r.person_id, [])
+    aktivNachPerson.get(r.person_id)!.push(r)
   }
 
   const zurueckNachPerson = new Map<string, Rechnung[]>()
-  for (const r of bucket.zurueckgestellt) {
-    const pid = r.person_id
-    if (!zurueckNachPerson.has(pid)) zurueckNachPerson.set(pid, [])
-    zurueckNachPerson.get(pid)!.push(r)
+  for (const r of zurueckgestellt) {
+    if (!zurueckNachPerson.has(r.person_id)) zurueckNachPerson.set(r.person_id, [])
+    zurueckNachPerson.get(r.person_id)!.push(r)
   }
 
-  const allePersonIds = new Set([...aktivNachPerson.keys(), ...zurueckNachPerson.keys()])
+  const allePersonIds = [...new Set([...aktivNachPerson.keys(), ...zurueckNachPerson.keys()])]
 
   async function bulkEinreichen(personId: string) {
-    const rechnungen = aktivNachPerson.get(personId) ?? []
     setBulkLoading(prev => new Set(prev).add(personId))
-    for (const r of rechnungen) {
+    for (const r of aktivNachPerson.get(personId) ?? []) {
       await onUpdate(r.id, { pkv_eingereicht_am: today() })
     }
     setBulkLoading(prev => { const next = new Set(prev); next.delete(personId); return next })
   }
 
-  function toggleZurueck(personId: string) {
-    setShowZurueckgestellt(prev => {
-      const next = new Set(prev)
-      next.has(personId) ? next.delete(personId) : next.add(personId)
-      return next
-    })
-  }
-
   return (
-    <div className="space-y-4">
-      {[...allePersonIds].map(personId => {
-        const person = personenById.get(personId)
-        const personName = person?.name ?? personId
+    <div className="space-y-3">
+      {allePersonIds.map(personId => {
+        const personName = personenById.get(personId)?.name ?? personId
         const aktiv = aktivNachPerson.get(personId) ?? []
         const zurueck = zurueckNachPerson.get(personId) ?? []
-        const showZ = showZurueckgestellt.has(personId)
+        const showZ = showZurueck.has(personId)
 
         return (
           <div key={personId} className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
-            {/* Person Header */}
-            <div className="px-3 py-2 bg-gray-100 dark:bg-gray-700/50">
-              <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{personName}</div>
-              {aktiv.length > 0 && (
+            <div className="px-3 py-2 bg-gray-100 dark:bg-gray-700/50 flex items-center justify-between">
+              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{personName}</span>
+              {aktiv.length > 1 && (
                 <button
-                  className="mt-1 text-xs text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 disabled:opacity-50"
+                  className="text-xs text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 disabled:opacity-50"
                   onClick={() => bulkEinreichen(personId)}
                   disabled={bulkLoading.has(personId)}
                 >
                   {bulkLoading.has(personId) && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
-                  Alle bei PKV einreichen
+                  Alle bei PKV einreichen ({aktiv.length})
                 </button>
               )}
             </div>
-
-            {/* Aktive Rechnungen */}
             <div className="px-3">
               {aktiv.map(r => (
                 <RechnungZeile
@@ -324,7 +301,7 @@ function PkvEntscheidungSektion({ bucket, personenById, correspondentsById, onUp
                       />
                       <QuickAction
                         label="Zurückstellen"
-                        icon={<span className="text-xs">⏸</span>}
+                        icon={<PauseCircle className="w-3 h-3" />}
                         loading={loading.has(r.id)}
                         variant="secondary"
                         onClick={() => onUpdate(r.id, { pkv_verzicht: true })}
@@ -334,39 +311,38 @@ function PkvEntscheidungSektion({ bucket, personenById, correspondentsById, onUp
                 />
               ))}
             </div>
-
-            {/* Zurückgestellte Toggle */}
             {zurueck.length > 0 && (
               <div className="px-3 pb-2">
                 <button
                   className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center gap-1 py-1 mt-1"
-                  onClick={() => toggleZurueck(personId)}
+                  onClick={() => setShowZurueck(prev => {
+                    const next = new Set(prev)
+                    next.has(personId) ? next.delete(personId) : next.add(personId)
+                    return next
+                  })}
                 >
                   {showZ ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                  {zurueck.length} zurückgestellte Rechnung{zurueck.length !== 1 ? 'en' : ''} {showZ ? 'ausblenden' : 'anzeigen'}
+                  {zurueck.length} zurückgestellte Rechnung{zurueck.length !== 1 ? 'en' : ''}{' '}
+                  {showZ ? 'ausblenden' : 'anzeigen'}
                 </button>
-                {showZ && (
-                  <div className="mt-1">
-                    {zurueck.map(r => (
-                      <RechnungZeile
-                        key={r.id}
-                        r={r}
-                        correspondentsById={correspondentsById}
-                        personenById={personenById}
-                        dimmed
-                        action={
-                          <QuickAction
-                            label="Doch einreichen"
-                            icon={<RotateCcw className="w-3 h-3" />}
-                            loading={loading.has(r.id)}
-                            variant="secondary"
-                            onClick={() => onUpdate(r.id, { pkv_verzicht: false })}
-                          />
-                        }
+                {showZ && zurueck.map(r => (
+                  <RechnungZeile
+                    key={r.id}
+                    r={r}
+                    correspondentsById={correspondentsById}
+                    personenById={personenById}
+                    dimmed
+                    action={
+                      <QuickAction
+                        label="Doch einreichen"
+                        icon={<RotateCcw className="w-3 h-3" />}
+                        loading={loading.has(r.id)}
+                        variant="secondary"
+                        onClick={() => onUpdate(r.id, { pkv_verzicht: false })}
                       />
-                    ))}
-                  </div>
-                )}
+                    }
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -379,7 +355,7 @@ function PkvEntscheidungSektion({ bucket, personenById, correspondentsById, onUp
 // ─── Bucket Sektion ────────────────────────────────────────────────────────────
 
 interface BucketSektionProps {
-  bucket: AufgabenBucket
+  bucket: BefuellterBucket
   personenById: Map<string, Person>
   correspondentsById: Map<string, Correspondent>
   onUpdate: (id: string, patch: object) => Promise<void>
@@ -389,37 +365,18 @@ interface BucketSektionProps {
   onToggle: () => void
 }
 
-function BucketSektion({ bucket, personenById, correspondentsById, onUpdate, onArchivieren, loading, collapsed, onToggle }: BucketSektionProps) {
+function BucketSektion({
+  bucket, personenById, correspondentsById, onUpdate, onArchivieren, loading, collapsed, onToggle,
+}: BucketSektionProps) {
   const total = bucket.aktive.length + bucket.zurueckgestellt.length
   if (total === 0) return null
 
-  const colorCls = BUCKET_COLORS[bucket.key]
-  const bgCls = BUCKET_BG[bucket.key]
+  const { definition: def } = bucket
+  const colorCls = BUCKET_COLORS[def.key]
+  const bgCls = BUCKET_BG[def.key]
 
-  function getAction(r: Rechnung): React.ReactNode {
-    if (bucket.key === 'beihilfe_bescheid_ausstehend') {
-      return (
-        <ErstattungInput
-          rechnungId={r.id}
-          feld="beihilfe_erstattet_betrag"
-          erwartet={r.beihilfe_anteil_erwartet}
-          loading={loading.has(r.id)}
-          onSave={onUpdate}
-        />
-      )
-    }
-    if (bucket.key === 'pkv_abrechnung_ausstehend') {
-      return (
-        <ErstattungInput
-          rechnungId={r.id}
-          feld="pkv_erstattet_betrag"
-          erwartet={r.pkv_anteil_erwartet}
-          loading={loading.has(r.id)}
-          onSave={onUpdate}
-        />
-      )
-    }
-    switch (bucket.key) {
+  function getAction(r: Rechnung): ReactNode {
+    switch (def.key) {
       case 'zu_bezahlen':
         return (
           <QuickAction
@@ -438,6 +395,26 @@ function BucketSektion({ bucket, personenById, correspondentsById, onUpdate, onA
             onClick={() => onUpdate(r.id, { beihilfe_eingereicht_am: today() })}
           />
         )
+      case 'warten_beihilfe':
+        return (
+          <ErstattungInput
+            rechnungId={r.id}
+            feld="beihilfe_erstattet_betrag"
+            erwartet={r.beihilfe_anteil_erwartet}
+            loading={loading.has(r.id)}
+            onSave={onUpdate}
+          />
+        )
+      case 'warten_pkv':
+        return (
+          <ErstattungInput
+            rechnungId={r.id}
+            feld="pkv_erstattet_betrag"
+            erwartet={r.pkv_anteil_erwartet}
+            loading={loading.has(r.id)}
+            onSave={onUpdate}
+          />
+        )
       case 'bereit_archivieren':
         return (
           <QuickAction
@@ -453,14 +430,13 @@ function BucketSektion({ bucket, personenById, correspondentsById, onUpdate, onA
   }
 
   return (
-    <div id={`bucket-${bucket.key}`} className={`rounded-lg border ${bgCls} overflow-hidden`}>
-      {/* Header */}
+    <div id={`bucket-${def.key}`} className={`rounded-lg border ${bgCls} overflow-hidden`}>
       <button
         className="w-full flex items-center gap-2 px-3 py-3 text-left min-h-[48px]"
         onClick={onToggle}
       >
-        <BucketIcon k={bucket.key} cls={colorCls} />
-        <span className={`font-semibold text-sm flex-1 ${colorCls}`}>{bucket.titel}</span>
+        <BucketIcon k={def.key} cls={colorCls} />
+        <span className={`font-semibold text-sm flex-1 ${colorCls}`}>{def.titel}</span>
         <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
           {total} Rechnung{total !== 1 ? 'en' : ''}
         </span>
@@ -473,14 +449,14 @@ function BucketSektion({ bucket, personenById, correspondentsById, onUpdate, onA
         }
       </button>
 
-      {/* Body */}
       {!collapsed && (
         <div className="px-3 pb-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{bucket.beschreibung}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{def.beschreibung}</p>
           <div className="border-t border-gray-200 dark:border-gray-600 pt-1">
-            {bucket.key === 'pkv_entscheidung' ? (
-              <PkvEntscheidungSektion
-                bucket={bucket}
+            {def.key === 'pkv_einreichen' ? (
+              <PkvEinreichenSektion
+                aktive={bucket.aktive}
+                zurueckgestellt={bucket.zurueckgestellt}
                 personenById={personenById}
                 correspondentsById={correspondentsById}
                 onUpdate={onUpdate}
@@ -530,27 +506,27 @@ export default function AufgabenDashboard() {
 
   const personenById = useMemo(
     () => new Map<string, Person>(personen.map(p => [p.id, p])),
-    [personen]
+    [personen],
   )
 
   const correspondentsById = useMemo(
     () => new Map<string, Correspondent>(correspondents.map(c => [c.id, c])),
-    [correspondents]
+    [correspondents],
   )
 
   const gefilterteRechnungen = useMemo(
     () => applyAufgabenFilter(rechnungen, filter),
-    [rechnungen, filter]
+    [rechnungen, filter],
   )
 
   const buckets = useMemo(
-    () => groupIntoAufgabenBuckets(gefilterteRechnungen, personenById),
-    [gefilterteRechnungen, personenById]
+    () => groupIntoBuckets(gefilterteRechnungen, personenById),
+    [gefilterteRechnungen, personenById],
   )
 
   const kennzahlen = useMemo(
     () => berechneFinanzKennzahlen(gefilterteRechnungen, personenById),
-    [gefilterteRechnungen, personenById]
+    [gefilterteRechnungen, personenById],
   )
 
   async function handleUpdate(id: string, patch: object) {
@@ -587,69 +563,63 @@ export default function AufgabenDashboard() {
     return <p className="text-gray-500 dark:text-gray-400 text-sm">Lade Aufgaben...</p>
   }
 
-  // Chips
-  const actionBuckets = buckets.filter(b => b.key !== 'bereit_archivieren' && (b.aktive.length + b.zurueckgestellt.length) > 0)
-  const archivBucket = buckets.find(b => b.key === 'bereit_archivieren')
-  const archivCount = (archivBucket?.aktive.length ?? 0) + (archivBucket?.zurueckgestellt.length ?? 0)
-  const offeneAufgaben = actionBuckets.reduce((s, b) => s + b.aktive.length + b.zurueckgestellt.length, 0)
+  const sichtbareBuckets = buckets.filter(b => (b.aktive.length + b.zurueckgestellt.length) > 0)
+  const offeneAufgaben = sichtbareBuckets
+    .filter(b => !b.definition.istWartebucket && b.definition.key !== 'bereit_archivieren')
+    .reduce((s, b) => s + b.aktive.length + b.zurueckgestellt.length, 0)
 
   return (
     <div className="space-y-3">
-      {/* Filterleiste */}
       <AufgabenFilterleiste filter={filter} onChange={setFilter} personen={personen} />
 
-      {/* Finanzstatus */}
       <AufgabenFinanzStatus kennzahlen={kennzahlen} filter={filter} />
 
-      {/* Zusammenfassung */}
+      {/* Zusammenfassungs-Chips */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2.5">
-        {offeneAufgaben === 0 && archivCount === 0 ? (
+        {sichtbareBuckets.length === 0 ? (
           <p className="text-sm text-gray-600 dark:text-gray-300">Alles erledigt 🎉</p>
         ) : (
           <>
             <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              {offeneAufgaben > 0 ? `${offeneAufgaben} offene Aufgabe${offeneAufgaben !== 1 ? 'n' : ''}` : 'Keine offenen Aufgaben'}
+              {offeneAufgaben > 0
+                ? `${offeneAufgaben} offene Aufgabe${offeneAufgaben !== 1 ? 'n' : ''}`
+                : 'Keine offenen Aufgaben'}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {actionBuckets.map(b => {
+              {sichtbareBuckets.map(b => {
                 const count = b.aktive.length + b.zurueckgestellt.length
-                const isWarte = WARTE_BUCKETS.has(b.key)
+                const isWarte = b.definition.istWartebucket
                 return (
-                  <a
-                    key={b.key}
-                    href={`#bucket-${b.key}`}
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${BUCKET_CHIP[b.key]} ${isWarte ? 'italic' : ''}`}
+                  <button
+                    key={b.definition.key}
+                    onClick={() => {
+                      setCollapsed(prev => { const next = new Set(prev); next.delete(b.definition.key); return next })
+                      setTimeout(() => document.getElementById(`bucket-${b.definition.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+                    }}
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${BUCKET_CHIP[b.definition.key]} ${isWarte ? 'italic' : ''}`}
                   >
                     {isWarte && <Clock className="w-3 h-3 inline mr-0.5" />}
-                    {count} {b.titel}
-                  </a>
+                    {count} {b.definition.titel}
+                  </button>
                 )
               })}
-              {archivCount > 0 && (
-                <a
-                  href="#bucket-bereit_archivieren"
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${BUCKET_CHIP['bereit_archivieren']}`}
-                >
-                  {archivCount} bereit zum Archivieren
-                </a>
-              )}
             </div>
           </>
         )}
       </div>
 
-      {/* Bucket Sektionen */}
+      {/* Bucket-Sektionen */}
       {buckets.map(b => (
         <BucketSektion
-          key={b.key}
+          key={b.definition.key}
           bucket={b}
           personenById={personenById}
           correspondentsById={correspondentsById}
           onUpdate={handleUpdate}
           onArchivieren={handleArchivieren}
           loading={loading}
-          collapsed={collapsed.has(b.key)}
-          onToggle={() => toggleCollapse(b.key)}
+          collapsed={collapsed.has(b.definition.key)}
+          onToggle={() => toggleCollapse(b.definition.key)}
         />
       ))}
     </div>

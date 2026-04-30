@@ -3,124 +3,133 @@ import type { Rechnung, Person } from '../types'
 export type BucketKey =
   | 'zu_bezahlen'
   | 'beihilfe_einreichen'
-  | 'beihilfe_bescheid_ausstehend'
-  | 'pkv_entscheidung'
-  | 'pkv_abrechnung_ausstehend'
+  | 'warten_beihilfe'
+  | 'pkv_einreichen'
+  | 'warten_pkv'
   | 'bereit_archivieren'
 
-export interface AufgabenBucket {
+export interface BucketDefinition {
   key: BucketKey
   titel: string
   beschreibung: string
-  aktive: Rechnung[]
-  zurueckgestellt: Rechnung[]  // pkv_verzicht=true, nur Bucket pkv_entscheidung
-  gesamtbetrag: number         // Summe betrag (Euro), alle Rechnungen im Bucket
-  offenerPkvAnteil: number     // Nur pkv_entscheidung: Summe pkv_anteil_erwartet
+  istWartebucket: boolean
 }
 
-const BUCKET_META: Record<BucketKey, { titel: string; beschreibung: string }> = {
-  zu_bezahlen: {
+export interface BefuellterBucket {
+  definition: BucketDefinition
+  // aktive: pkv_verzicht=false (oder irrelevant für diesen Bucket)
+  aktive: Rechnung[]
+  // zurueckgestellt: nur pkv_einreichen; pkv_verzicht=true
+  zurueckgestellt: Rechnung[]
+  gesamtbetrag: number
+}
+
+export const BUCKET_DEFINITIONEN: BucketDefinition[] = [
+  {
+    key: 'zu_bezahlen',
     titel: 'Zu bezahlen',
     beschreibung: 'Diese Rechnungen sind noch nicht beglichen.',
+    istWartebucket: false,
   },
-  beihilfe_einreichen: {
+  {
+    key: 'beihilfe_einreichen',
     titel: 'Beihilfe einreichen',
-    beschreibung: 'Bezahlt – jetzt zur Beihilfestelle einreichen.',
+    beschreibung: 'Noch nicht bei der Beihilfestelle eingereicht.',
+    istWartebucket: false,
   },
-  beihilfe_bescheid_ausstehend: {
+  {
+    key: 'warten_beihilfe',
     titel: 'Warten auf Beihilfe-Bescheid',
     beschreibung: 'Eingereicht – warte auf Bescheid der Beihilfestelle.',
+    istWartebucket: true,
   },
-  pkv_entscheidung: {
-    titel: 'PKV-Entscheidung ausstehend',
-    beschreibung: 'Beihilfe-Bescheid liegt vor. Entscheide ob du bei der PKV einreichst.',
+  {
+    key: 'pkv_einreichen',
+    titel: 'PKV einreichen',
+    beschreibung: 'Noch nicht bei der PKV eingereicht.',
+    istWartebucket: false,
   },
-  pkv_abrechnung_ausstehend: {
+  {
+    key: 'warten_pkv',
     titel: 'Warten auf PKV-Abrechnung',
     beschreibung: 'Bei der PKV eingereicht – warte auf Erstattungsbescheid.',
+    istWartebucket: true,
   },
-  bereit_archivieren: {
+  {
+    key: 'bereit_archivieren',
     titel: 'Erledigt – bereit zum Archivieren',
     beschreibung: 'Alle Schritte abgeschlossen.',
+    istWartebucket: false,
   },
-}
-
-function getBucketKey(r: Rechnung, personenById: Map<string, Person>): BucketKey | null {
-  // Nur nicht-archivierte Rechnungen
-  if (r.archiviert_am !== null) return null
-
-  const person = personenById.get(r.person_id)
-  const hatBeihilfestelle = person?.beihilfestelle_id != null
-
-  // 1. Zu bezahlen
-  if (r.bezahlt_am === null) return 'zu_bezahlen'
-
-  // 2. Beihilfe einreichen
-  if (hatBeihilfestelle && r.beihilfe_eingereicht_am === null) return 'beihilfe_einreichen'
-
-  // 3. Beihilfe-Bescheid ausstehend
-  if (r.beihilfe_eingereicht_am !== null && r.beihilfe_erstattet_betrag === null) {
-    return 'beihilfe_bescheid_ausstehend'
-  }
-
-  // 4. PKV-Entscheidung
-  const beihilfeAbgeschlossen = !hatBeihilfestelle || r.beihilfe_erstattet_betrag !== null
-  if (beihilfeAbgeschlossen && r.pkv_eingereicht_am === null) return 'pkv_entscheidung'
-
-  // 5. PKV-Abrechnung ausstehend
-  if (r.pkv_eingereicht_am !== null && r.pkv_erstattet_betrag === null) {
-    return 'pkv_abrechnung_ausstehend'
-  }
-
-  // 6. Bereit archivieren
-  return 'bereit_archivieren'
-}
-
-const BUCKET_ORDER: BucketKey[] = [
-  'zu_bezahlen',
-  'beihilfe_einreichen',
-  'beihilfe_bescheid_ausstehend',
-  'pkv_entscheidung',
-  'pkv_abrechnung_ausstehend',
-  'bereit_archivieren',
 ]
 
-export function groupIntoAufgabenBuckets(
-  rechnungen: Rechnung[],
-  personenById: Map<string, Person>
-): AufgabenBucket[] {
-  const buckets: Record<BucketKey, { aktive: Rechnung[]; zurueckgestellt: Rechnung[] }> = {
-    zu_bezahlen: { aktive: [], zurueckgestellt: [] },
-    beihilfe_einreichen: { aktive: [], zurueckgestellt: [] },
-    beihilfe_bescheid_ausstehend: { aktive: [], zurueckgestellt: [] },
-    pkv_entscheidung: { aktive: [], zurueckgestellt: [] },
-    pkv_abrechnung_ausstehend: { aktive: [], zurueckgestellt: [] },
-    bereit_archivieren: { aktive: [], zurueckgestellt: [] },
+/**
+ * Parallele Zuweisung: Eine Rechnung kann gleichzeitig in mehreren Buckets sein.
+ * Jede Bedingung wird unabhängig geprüft.
+ */
+export function getBucketsForRechnung(
+  r: Rechnung,
+  person: Person | undefined,
+): BucketKey[] {
+  const keys: BucketKey[] = []
+
+  // zu_bezahlen
+  if (r.bezahlt_am === null) keys.push('zu_bezahlen')
+
+  // beihilfe_einreichen
+  if (person?.beihilfestelle_id != null && r.beihilfe_eingereicht_am === null) {
+    keys.push('beihilfe_einreichen')
   }
 
-  for (const r of rechnungen) {
-    const key = getBucketKey(r, personenById)
-    if (!key) continue
+  // warten_beihilfe
+  if (r.beihilfe_eingereicht_am !== null && r.beihilfe_erstattet_betrag === null) {
+    keys.push('warten_beihilfe')
+  }
 
-    if (key === 'pkv_entscheidung' && r.pkv_verzicht) {
-      buckets[key].zurueckgestellt.push(r)
-    } else {
-      buckets[key].aktive.push(r)
+  // pkv_einreichen (inkl. zurückgestellt – werden separat angezeigt)
+  if (r.pkv_eingereicht_am === null) keys.push('pkv_einreichen')
+
+  // warten_pkv
+  if (r.pkv_eingereicht_am !== null && r.pkv_erstattet_betrag === null) {
+    keys.push('warten_pkv')
+  }
+
+  // bereit_archivieren: in keinem anderen Bucket
+  if (keys.length === 0) keys.push('bereit_archivieren')
+
+  return keys
+}
+
+export function groupIntoBuckets(
+  rechnungen: Rechnung[],
+  personenById: Map<string, Person>,
+): BefuellterBucket[] {
+  const byKey = new Map<BucketKey, { aktive: Rechnung[]; zurueckgestellt: Rechnung[] }>(
+    BUCKET_DEFINITIONEN.map(d => [d.key, { aktive: [], zurueckgestellt: [] }])
+  )
+
+  for (const r of rechnungen) {
+    if (r.archiviert_am !== null) continue
+    const person = personenById.get(r.person_id)
+    const keys = getBucketsForRechnung(r, person)
+    for (const key of keys) {
+      const slot = byKey.get(key)!
+      if (key === 'pkv_einreichen' && r.pkv_verzicht) {
+        slot.zurueckgestellt.push(r)
+      } else {
+        slot.aktive.push(r)
+      }
     }
   }
 
-  return BUCKET_ORDER.map(key => {
-    const { aktive, zurueckgestellt } = buckets[key]
+  return BUCKET_DEFINITIONEN.map(def => {
+    const { aktive, zurueckgestellt } = byKey.get(def.key)!
     const alle = [...aktive, ...zurueckgestellt]
-    const gesamtbetrag = alle.reduce((s, r) => s + r.betrag, 0)
-    const offenerPkvAnteil = alle.reduce((s, r) => s + (r.pkv_anteil_erwartet ?? 0), 0)
     return {
-      key,
-      ...BUCKET_META[key],
+      definition: def,
       aktive,
       zurueckgestellt,
-      gesamtbetrag,
-      offenerPkvAnteil,
+      gesamtbetrag: alle.reduce((s, r) => s + r.betrag, 0),
     }
   })
 }
