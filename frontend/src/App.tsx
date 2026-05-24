@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import RechnungenPage from './pages/RechnungenPage'
 import StammdatenPage from './pages/StammdatenPage'
+import AntraegePage from './pages/AntraegePage'
 import Layout from './components/Layout'
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="rechnungen" element={<RechnungenPage />} />
           <Route path="stammdaten" element={<StammdatenPage />} />
+          <Route path="antraege" element={<AntraegePage />} />
         </Route>
       </Routes>
     </BrowserRouter>

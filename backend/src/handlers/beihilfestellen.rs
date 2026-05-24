@@ -44,3 +44,33 @@ pub async fn delete(
     repositories::beihilfestellen::delete(&state.db, &id, &auth.mandant_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[derive(serde::Deserialize)]
+pub struct PersonBody {
+    pub person_id: String,
+}
+
+pub async fn add_person(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(body): Json<PersonBody>,
+) -> Result<Json<Beihilfestelle>, AppError> {
+    repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id)
+        .await?.ok_or(AppError::NotFound)?;
+    repositories::beihilfestellen::add_person(&state.db, &id, &body.person_id).await?;
+    let item = repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id).await?.ok_or(AppError::NotFound)?;
+    Ok(Json(item))
+}
+
+pub async fn remove_person(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((id, person_id)): Path<(String, String)>,
+) -> Result<Json<Beihilfestelle>, AppError> {
+    repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id)
+        .await?.ok_or(AppError::NotFound)?;
+    repositories::beihilfestellen::remove_person(&state.db, &id, &person_id).await?;
+    let item = repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id).await?.ok_or(AppError::NotFound)?;
+    Ok(Json(item))
+}

@@ -41,6 +41,7 @@ export default function Layout() {
               <div className="hidden sm:flex items-center gap-1">
                 <NavLink to="/dashboard" className={linkClass}>Dashboard</NavLink>
                 <NavLink to="/rechnungen" className={linkClass}>Rechnungen</NavLink>
+                <NavLink to="/antraege" className={linkClass}>Anträge</NavLink>
                 <NavLink to="/stammdaten" className={linkClass}>Stammdaten</NavLink>
               </div>
             </div>
@@ -85,6 +86,7 @@ export default function Layout() {
           <div className="sm:hidden border-t border-blue-700 px-4 py-2 space-y-1">
             <NavLink to="/dashboard" className={mobileLinkClass} onClick={() => setMenuOpen(false)}>Dashboard</NavLink>
             <NavLink to="/rechnungen" className={mobileLinkClass} onClick={() => setMenuOpen(false)}>Rechnungen</NavLink>
+            <NavLink to="/antraege" className={mobileLinkClass} onClick={() => setMenuOpen(false)}>Anträge</NavLink>
             <NavLink to="/stammdaten" className={mobileLinkClass} onClick={() => setMenuOpen(false)}>Stammdaten</NavLink>
             <button
               onClick={handleLogout}

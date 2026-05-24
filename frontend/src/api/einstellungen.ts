@@ -33,6 +33,7 @@ export interface Einstellungen {
   mandant_name?: string
   gdrive_service_account_configured?: boolean
   gdrive_folder_id?: string
+  n8n_webhook_url?: string
 }
 
 export async function getEinstellungen(): Promise<Einstellungen> {
@@ -46,6 +47,7 @@ export async function updateEinstellungen(data: {
   mandant_name?: string
   gdrive_service_account_json?: string
   gdrive_folder_id?: string
+  n8n_webhook_url?: string
 }): Promise<void> {
   await authFetch('/einstellungen', {
     method: 'PATCH',

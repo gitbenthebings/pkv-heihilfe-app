@@ -92,6 +92,13 @@ export default function BeihilfeAntragDetail({ antragId, onBack }: Props) {
   const { data: bescheide = [] } = useQuery({
     queryKey: ['bescheide', antragId],
     queryFn: () => getBescheide(antragId),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (data && data.some(b => b.analyse_status === 'ausstehend' || b.analyse_status === 'wird_analysiert')) {
+        return 3000
+      }
+      return false
+    },
   })
   const positionenResults = useQueries({
     queries: bescheide.map(b => ({

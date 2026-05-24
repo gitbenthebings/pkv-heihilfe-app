@@ -21,6 +21,7 @@ export interface Beihilfestelle {
   mandant_id: string
   name: string
   dienstherr_typ: 'bund' | 'land' | 'kommune'
+  personen_ids: string[]
 }
 
 export interface CreateBeihilfestelle {
@@ -168,6 +169,115 @@ export interface CreateRechnung {
   notiz?: string
   pkv_gescannt?: boolean
   beihilfe_gescannt?: boolean
+}
+
+// ── PKV ───────────────────────────────────────────────────────────────────────
+
+export interface Pkv {
+  id: string
+  mandant_id: string
+  name: string
+  personen_ids: string[]
+}
+
+export interface CreatePkv {
+  name: string
+}
+
+export interface UpdatePkv {
+  name?: string
+}
+
+// ── Satz-Historie ─────────────────────────────────────────────────────────────
+
+export interface PersonSatzHistorie {
+  id: string
+  person_id: string
+  beihilfe_satz: number
+  pkv_satz: number
+  gueltig_ab: string
+  erstellt_am: string
+}
+
+export interface CreatePersonSatzHistorie {
+  beihilfe_satz: number
+  pkv_satz: number
+  gueltig_ab: string
+}
+
+// ── Anträge ───────────────────────────────────────────────────────────────────
+
+export type AntragStatus = 'entwurf' | 'versendet' | 'in_bearbeitung' | 'beschieden' | 'archiviert'
+
+export interface BeihilfeAntrag {
+  id: string
+  mandant_id: string
+  typ: 'beihilfe' | 'pkv'
+  status: AntragStatus
+  referenz_nr: number | null
+  titel: string | null
+  notiz: string | null
+  beihilfestelle_id: string | null
+  pkv_id: string | null
+  pkv_versicherer: string | null
+  paperless_share_url: string | null
+  versendet_am: string | null
+  erstellt_am: string
+  aktualisiert_am: string
+}
+
+export interface CreateBeihilfeAntrag {
+  typ: 'beihilfe' | 'pkv'
+  titel?: string
+  notiz?: string
+  beihilfestelle_id?: string
+  pkv_id?: string
+  pkv_versicherer?: string
+}
+
+export interface UpdateBeihilfeAntrag {
+  titel?: string
+  notiz?: string
+  beihilfestelle_id?: string | null
+  pkv_id?: string | null
+  pkv_versicherer?: string | null
+  paperless_share_url?: string | null
+}
+
+export interface AntragRechnung {
+  antrag_id: string
+  rechnung_id: string
+  widerspruch: boolean
+}
+
+// ── Bescheide & Positionen ────────────────────────────────────────────────────
+
+export interface BeihilfeBescheid {
+  id: string
+  antrag_id: string
+  typ: 'bescheid' | 'widerspruchsbescheid'
+  dateiname: string
+  groesse: number
+  analyse_status: 'ausstehend' | 'wird_analysiert' | 'abgeschlossen' | 'fehler'
+  analyse_fehler: string | null
+  datum: string | null
+  aktenzeichen: string | null
+  erstellt_am: string
+}
+
+export interface BeihilfePosition {
+  id: string
+  bescheid_id: string
+  lfd_nr: number
+  rechnungsdatum: string | null
+  leistungserbringer: string | null
+  rechnungsbetrag: number | null
+  anerkannt_betrag: number | null
+  abgelehnt_betrag: number | null
+  beihilfe_betrag: number | null
+  ablehnungsgrund: string | null
+  rechnung_id: string | null
+  zugeordnet_am: string | null
 }
 
 export interface UpdateRechnung {

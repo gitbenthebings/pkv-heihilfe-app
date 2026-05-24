@@ -1,22 +1,19 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Beihilfestelle {
+pub struct Pkv {
     pub id: String,
     pub mandant_id: String,
     pub name: String,
-    pub dienstherr_typ: String,
     pub personen_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateBeihilfestelle {
+pub struct CreatePkv {
     pub name: String,
-    pub dienstherr_typ: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateBeihilfestelle {
+pub struct UpdatePkv {
     pub name: Option<String>,
-    pub dienstherr_typ: Option<String>,
 }

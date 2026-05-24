@@ -1,7 +1,12 @@
 pub mod anhaenge;
-pub mod benutzer;
+pub mod antraege;
+pub mod beihilfe_bescheide;
+pub mod beihilfe_positionen;
 pub mod beihilfestellen;
+pub mod benutzer;
 pub mod einstellungen;
 pub mod personen;
+pub mod person_satz_historie;
+pub mod pkv;
 pub mod correspondents;
 pub mod rechnungen;

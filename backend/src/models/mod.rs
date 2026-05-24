@@ -1,8 +1,13 @@
 pub mod anhang;
+pub mod antrag;
+pub mod beihilfe_bescheid;
+pub mod beihilfe_position;
 pub mod beihilfestelle;
 pub mod benutzer;
-pub mod person;
 pub mod correspondent;
+pub mod person;
+pub mod person_satz_historie;
+pub mod pkv;
 pub mod rechnung;
 
 pub use beihilfestelle::{Beihilfestelle, CreateBeihilfestelle, UpdateBeihilfestelle};
