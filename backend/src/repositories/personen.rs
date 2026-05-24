@@ -42,6 +42,22 @@ pub async fn create(db: &Db, mandant_id: &str, input: &CreatePerson) -> Result<P
     .bind(input.bre_schwelle)
     .execute(db)
     .await?;
+
+    // Initialen Satz-Historie-Eintrag anlegen, damit find_satz_fuer_datum() für alle Rechnungen greift
+    let history_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    sqlx::query(
+        "INSERT INTO person_satz_historie (id, person_id, beihilfe_satz, pkv_satz, gueltig_ab, erstellt_am)
+         VALUES (?, ?, ?, ?, '1900-01-01', ?)"
+    )
+    .bind(&history_id)
+    .bind(&id)
+    .bind(input.beihilfe_satz)
+    .bind(input.pkv_satz)
+    .bind(&now)
+    .execute(db)
+    .await?;
+
     get(db, &id, mandant_id).await?.ok_or(AppError::NotFound)
 }
 
@@ -57,7 +73,11 @@ pub async fn update(db: &Db, id: &str, mandant_id: &str, input: &UpdatePerson) -
     };
     let beihilfe_satz = input.beihilfe_satz.unwrap_or(existing.beihilfe_satz);
     let pkv_satz = input.pkv_satz.unwrap_or(existing.pkv_satz);
-    let bre_schwelle = input.bre_schwelle.or(existing.bre_schwelle);
+    let bre_schwelle = match input.bre_schwelle {
+        None => existing.bre_schwelle,       // Feld fehlt → behalten
+        Some(None) => None,                  // explizites null → löschen
+        Some(Some(v)) => Some(v),            // Wert → setzen
+    };
 
     sqlx::query(
         "UPDATE person SET name = ?, geburtsdatum = ?, typ = ?, beihilfestelle_id = ?,

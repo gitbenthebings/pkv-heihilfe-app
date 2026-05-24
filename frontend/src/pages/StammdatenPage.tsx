@@ -1,48 +1,37 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getBeihilfestellen, createBeihilfestelle, updateBeihilfestelle, deleteBeihilfestelle } from '../api/beihilfestellen'
-import { getPersonen, createPerson, updatePerson, deletePerson } from '../api/personen'
+import { getBeihilfestellen, createBeihilfestelle, updateBeihilfestelle, deleteBeihilfestelle, addPersonToBeihilfestelle, removePersonFromBeihilfestelle } from '../api/beihilfestellen'
+import { getPkv, createPkv, updatePkv, deletePkv, addPersonToPkv, removePersonFromPkv } from '../api/pkv'
+import { getPersonen, createPerson, updatePerson, deletePerson, getSatzHistorie, createSatzHistorie, deleteSatzHistorie } from '../api/personen'
 import { getCorrespondents, createCorrespondent, updateCorrespondent, deleteCorrespondent } from '../api/correspondents'
 import { getBenutzer, createBenutzer, updateBenutzer, changePasswort, deleteBenutzer } from '../api/benutzer'
 import { getEinstellungen, updateEinstellungen, testPaperlessConnection, testGdriveConnection } from '../api/einstellungen'
 import { getScanMaxDim, getScanJpegQuality, setScanMaxDim, setScanJpegQuality, DEFAULT_MAX_DIM, DEFAULT_JPEG_QUALITY } from '../utils/scanSettings'
 import type {
   Beihilfestelle, CreateBeihilfestelle, UpdateBeihilfestelle,
-  Person, CreatePerson, UpdatePerson,
+  Pkv, CreatePkv, UpdatePkv,
+  Person, CreatePerson, UpdatePerson, PersonSatzHistorie, CreatePersonSatzHistorie,
   Correspondent, CreateCorrespondent, UpdateCorrespondent,
   Benutzer, CreateBenutzer, UpdateBenutzer,
 } from '../types'
 
-type Tab = 'personen' | 'correspondents' | 'beihilfestellen' | 'benutzer' | 'einstellungen'
+type Tab = 'personen' | 'correspondents' | 'beihilfestellen' | 'pkv' | 'benutzer' | 'einstellungen'
 
 const tabLabels: Record<Tab, string> = {
   personen: 'Personen',
   correspondents: 'Leistungserbringer',
   beihilfestellen: 'Beihilfestellen',
+  pkv: 'PKV',
   benutzer: 'Benutzer',
   einstellungen: 'Einstellungen',
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-const inputCls = 'border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 w-full'
-const btnPrimary = 'px-3 py-1.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50'
-const btnSecondary = 'px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600'
-const btnEdit = 'px-2 py-1 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30'
-const btnDelete = 'px-2 py-1 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/30'
-
-function th(label: string) {
-  return (
-    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">
-      {label}
-    </th>
-  )
-}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">{label}</label>
+      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>{label}</label>
       {children}
     </div>
   )
@@ -50,9 +39,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function DeleteError({ msg, onClose }: { msg: string; onClose: () => void }) {
   return (
-    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded p-3 text-sm text-red-700 dark:text-red-300 flex justify-between">
+    <div className="flex justify-between rounded p-3" style={{ background: 'var(--rose-dim)', border: '1px solid var(--rose)', fontSize: 13, color: 'var(--rose)' }}>
       <span>{msg}</span>
-      <button onClick={onClose} className="text-red-400 hover:text-red-600 ml-2">×</button>
+      <button onClick={onClose} style={{ color: 'var(--rose)', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, fontWeight: 700 }}>×</button>
     </div>
   )
 }
@@ -62,9 +51,66 @@ function DeleteError({ msg, onClose }: { msg: string; onClose: () => void }) {
 const dienstherr_typen = ['bund', 'land', 'kommune'] as const
 const dienstherr_label: Record<string, string> = { bund: 'Bund', land: 'Land', kommune: 'Kommune' }
 
+interface PersonenZuweisungProps {
+  bh: Beihilfestelle
+  allePersonen: Person[]
+  onAdd: (personId: string) => void
+  onRemove: (personId: string) => void
+}
+
+function PersonenZuweisung({ bh, allePersonen, onAdd, onRemove }: PersonenZuweisungProps) {
+  const [showSelect, setShowSelect] = useState(false)
+  const personenById = new Map(allePersonen.map(p => [p.id, p]))
+  const nichtZugewiesen = allePersonen.filter(p => !bh.personen_ids.includes(p.id))
+
+  return (
+    <div>
+      <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>Berechtigte Personen</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {bh.personen_ids.length === 0 ? (
+          <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Alle Personen erlaubt</span>
+        ) : (
+          bh.personen_ids.map(pid => {
+            const person = personenById.get(pid)
+            if (!person) return null
+            return (
+              <span key={pid} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, padding: '2px 6px', borderRadius: 4, background: 'var(--blue-dim)', border: '1px solid var(--blue)', color: 'var(--text)' }}>
+                {person.name}
+                <button
+                  onClick={() => onRemove(pid)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', lineHeight: 1, padding: 0, fontSize: 13, fontWeight: 700 }}
+                  title="Entfernen"
+                >×</button>
+              </span>
+            )
+          })
+        )}
+        {showSelect ? (
+          <select
+            autoFocus
+            style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
+            defaultValue=""
+            onChange={e => { if (e.target.value) { onAdd(e.target.value); setShowSelect(false) } }}
+            onBlur={() => setShowSelect(false)}
+          >
+            <option value="">Person wählen…</option>
+            {nichtZugewiesen.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : nichtZugewiesen.length > 0 ? (
+          <button
+            onClick={() => setShowSelect(true)}
+            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+          >+ Person</button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function BeihilfestellenTab() {
   const qc = useQueryClient()
   const { data: items = [], isLoading, error } = useQuery({ queryKey: ['beihilfestellen'], queryFn: getBeihilfestellen })
+  const { data: personen = [] } = useQuery({ queryKey: ['personen'], queryFn: getPersonen })
   const [editId, setEditId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<UpdateBeihilfestelle>({})
   const [showNew, setShowNew] = useState(false)
@@ -76,25 +122,33 @@ function BeihilfestellenTab() {
   const createMut = useMutation({ mutationFn: createBeihilfestelle, onSuccess: () => { inv(); setShowNew(false); setNewForm({ name: '', dienstherr_typ: 'bund' }) } })
   const updateMut = useMutation({ mutationFn: ({ id, data }: { id: string; data: UpdateBeihilfestelle }) => updateBeihilfestelle(id, data), onSuccess: () => { inv(); setEditId(null) } })
   const deleteMut = useMutation({ mutationFn: deleteBeihilfestelle, onSuccess: () => { inv(); setDeleteError('') }, onError: (e: Error) => setDeleteError(e.message) })
+  const addPersonMut = useMutation({
+    mutationFn: ({ bh_id, person_id }: { bh_id: string; person_id: string }) => addPersonToBeihilfestelle(bh_id, person_id),
+    onSuccess: inv,
+  })
+  const removePersonMut = useMutation({
+    mutationFn: ({ bh_id, person_id }: { bh_id: string; person_id: string }) => removePersonFromBeihilfestelle(bh_id, person_id),
+    onSuccess: inv,
+  })
 
   const startEdit = (b: Beihilfestelle) => { setEditId(b.id); setEditValues({ name: b.name, dienstherr_typ: b.dienstherr_typ }) }
   const saveEdit = async () => { setSaving(true); try { await updateMut.mutateAsync({ id: editId!, data: editValues }) } finally { setSaving(false) } }
   const handleDelete = (id: string) => { if (confirm('Beihilfestelle wirklich löschen?')) deleteMut.mutate(id) }
 
-  if (isLoading) return <p className="text-gray-500 dark:text-gray-400 text-sm py-4">Lade...</p>
-  if (error) return <p className="text-red-600 dark:text-red-400 text-sm py-4">Fehler: {(error as Error).message}</p>
+  if (isLoading) return <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>Lade...</p>
+  if (error) return <p style={{ fontSize: 13, color: 'var(--rose)', padding: '16px 0' }}>Fehler: {(error as Error).message}</p>
 
   const editForm = (onSave: () => void, onCancel: () => void) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <Field label="Name"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></Field>
+      <Field label="Name"><input style={{ padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></Field>
       <Field label="Dienstherr">
-        <select className={inputCls} value={editValues.dienstherr_typ ?? ''} onChange={e => setEditValues(v => ({ ...v, dienstherr_typ: e.target.value as UpdateBeihilfestelle['dienstherr_typ'] }))}>
+        <select style={{ padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }} value={editValues.dienstherr_typ ?? ''} onChange={e => setEditValues(v => ({ ...v, dienstherr_typ: e.target.value as UpdateBeihilfestelle['dienstherr_typ'] }))}>
           {dienstherr_typen.map(t => <option key={t} value={t}>{dienstherr_label[t]}</option>)}
         </select>
       </Field>
       <div className="flex gap-2 sm:col-span-2">
-        <button className={btnPrimary} disabled={saving} onClick={onSave}>Sichern</button>
-        <button className={btnSecondary} onClick={onCancel}>Abbrechen</button>
+        <button className="app-btn-primary" disabled={saving} onClick={onSave}>Sichern</button>
+        <button className="app-btn-secondary" onClick={onCancel}>Abbrechen</button>
       </div>
     </div>
   )
@@ -104,72 +158,386 @@ function BeihilfestellenTab() {
       {deleteError && <DeleteError msg={deleteError} onClose={() => setDeleteError('')} />}
 
       <div className="flex justify-end">
-        <button onClick={() => setShowNew(s => !s)} className={btnPrimary + ' text-sm px-4'}>
+        <button onClick={() => setShowNew(s => !s)} className="app-btn-primary">
           {showNew ? 'Abbrechen' : '+ Neue Beihilfestelle'}
         </button>
       </div>
 
       {showNew && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neue Beihilfestelle</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-            <Field label="Name"><input className={inputCls} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></Field>
+        <div className="rounded-lg p-4" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Neue Beihilfestelle</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ maxWidth: 480 }}>
+            <Field label="Name"><input style={{ padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></Field>
             <Field label="Dienstherr">
-              <select className={inputCls} value={newForm.dienstherr_typ} onChange={e => setNewForm(f => ({ ...f, dienstherr_typ: e.target.value as CreateBeihilfestelle['dienstherr_typ'] }))}>
+              <select style={{ padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }} value={newForm.dienstherr_typ} onChange={e => setNewForm(f => ({ ...f, dienstherr_typ: e.target.value as CreateBeihilfestelle['dienstherr_typ'] }))}>
                 {dienstherr_typen.map(t => <option key={t} value={t}>{dienstherr_label[t]}</option>)}
               </select>
             </Field>
           </div>
           <div className="flex gap-2 mt-3">
-            <button className={btnPrimary} disabled={!newForm.name} onClick={() => createMut.mutate(newForm)}>Speichern</button>
-            <button className={btnSecondary} onClick={() => setShowNew(false)}>Abbrechen</button>
+            <button className="app-btn-primary" disabled={!newForm.name} onClick={() => createMut.mutate(newForm)}>Speichern</button>
+            <button className="app-btn-secondary" onClick={() => setShowNew(false)}>Abbrechen</button>
           </div>
         </div>
       )}
 
       {/* Mobile: Karten */}
       <div className="sm:hidden space-y-2">
-        {items.length === 0 && <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">Keine Einträge</p>}
+        {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
         {items.map(b => editId === b.id ? (
-          <div key={b.id} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3">
+          <div key={b.id} className="rounded-lg p-3" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
             {editForm(saveEdit, () => setEditId(null))}
           </div>
         ) : (
-          <div key={b.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 flex justify-between items-center">
-            <div>
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{b.name}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{dienstherr_label[b.dienstherr_typ]}</p>
+          <div key={b.id} className="rounded-lg p-3 space-y-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex justify-between items-start">
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{b.name}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{dienstherr_label[b.dienstherr_typ]}</p>
+              </div>
+              <div className="flex gap-1.5 shrink-0 ml-2">
+                <button className="app-btn-edit" onClick={() => startEdit(b)}>Bearb.</button>
+                <button className="app-btn-danger" onClick={() => handleDelete(b.id)}>Lösch.</button>
+              </div>
             </div>
-            <div className="flex gap-1.5 shrink-0 ml-2">
-              <button className={btnEdit} onClick={() => startEdit(b)}>Bearb.</button>
-              <button className={btnDelete} onClick={() => handleDelete(b.id)}>Lösch.</button>
-            </div>
+            <PersonenZuweisung
+              bh={b}
+              allePersonen={personen}
+              onAdd={pid => addPersonMut.mutate({ bh_id: b.id, person_id: pid })}
+              onRemove={pid => removePersonMut.mutate({ bh_id: b.id, person_id: pid })}
+            />
           </div>
         ))}
       </div>
 
-      {/* Desktop: Tabelle */}
-      <div className="hidden sm:block bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700"><tr>{th('Name')}{th('Dienstherr')}<th /></tr></thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {items.length === 0 && <tr><td colSpan={3} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">Keine Einträge</td></tr>}
-            {items.map(b => editId === b.id ? (
-              <tr key={b.id} className="bg-blue-50 dark:bg-blue-900/10">
-                <td className="px-3 py-2"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
-                <td className="px-3 py-2"><select className={inputCls} value={editValues.dienstherr_typ ?? ''} onChange={e => setEditValues(v => ({ ...v, dienstherr_typ: e.target.value as UpdateBeihilfestelle['dienstherr_typ'] }))}>{dienstherr_typen.map(t => <option key={t} value={t}>{dienstherr_label[t]}</option>)}</select></td>
-                <td className="px-3 py-2 whitespace-nowrap"><div className="flex gap-1"><button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button><button className={btnSecondary} onClick={() => setEditId(null)}>Abbruch</button></div></td>
-              </tr>
-            ) : (
-              <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="px-3 py-3 text-gray-800 dark:text-gray-200">{b.name}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{dienstherr_label[b.dienstherr_typ]}</td>
-                <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button className={btnEdit} onClick={() => startEdit(b)}>Bearbeiten</button><button className={btnDelete} onClick={() => handleDelete(b.id)}>Löschen</button></div></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Desktop: Karten (statt Tabelle, da Personen-Sektion extra Platz braucht) */}
+      <div className="hidden sm:block space-y-2">
+        {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
+        {items.map(b => editId === b.id ? (
+          <div key={b.id} className="rounded-lg p-4" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
+            {editForm(saveEdit, () => setEditId(null))}
+          </div>
+        ) : (
+          <div key={b.id} className="rounded-lg p-4 space-y-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{b.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{dienstherr_label[b.dienstherr_typ]}</span>
+              </div>
+              <div className="flex gap-1.5">
+                <button className="app-btn-edit" onClick={() => startEdit(b)}>Bearbeiten</button>
+                <button className="app-btn-danger" onClick={() => handleDelete(b.id)}>Löschen</button>
+              </div>
+            </div>
+            <PersonenZuweisung
+              bh={b}
+              allePersonen={personen}
+              onAdd={pid => addPersonMut.mutate({ bh_id: b.id, person_id: pid })}
+              onRemove={pid => removePersonMut.mutate({ bh_id: b.id, person_id: pid })}
+            />
+          </div>
+        ))}
       </div>
+    </div>
+  )
+}
+
+// ─── PKV ──────────────────────────────────────────────────────────────────────
+
+interface PkvPersonenZuweisungProps {
+  pkv: Pkv
+  allePersonen: Person[]
+  onAdd: (personId: string) => void
+  onRemove: (personId: string) => void
+}
+
+function PkvPersonenZuweisung({ pkv, allePersonen, onAdd, onRemove }: PkvPersonenZuweisungProps) {
+  const [showSelect, setShowSelect] = useState(false)
+  const personenById = new Map(allePersonen.map(p => [p.id, p]))
+  const nichtZugewiesen = allePersonen.filter(p => !pkv.personen_ids.includes(p.id))
+
+  return (
+    <div>
+      <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>Versicherte Personen</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {pkv.personen_ids.length === 0 ? (
+          <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine Personen zugewiesen</span>
+        ) : (
+          pkv.personen_ids.map(pid => {
+            const person = personenById.get(pid)
+            if (!person) return null
+            return (
+              <span key={pid} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, padding: '2px 6px', borderRadius: 4, background: 'var(--teal-dim)', border: '1px solid var(--teal)', color: 'var(--text)' }}>
+                {person.name}
+                <button
+                  onClick={() => onRemove(pid)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', lineHeight: 1, padding: 0, fontSize: 13, fontWeight: 700 }}
+                  title="Entfernen"
+                >×</button>
+              </span>
+            )
+          })
+        )}
+        {showSelect ? (
+          <select
+            autoFocus
+            style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
+            defaultValue=""
+            onChange={e => { if (e.target.value) { onAdd(e.target.value); setShowSelect(false) } }}
+            onBlur={() => setShowSelect(false)}
+          >
+            <option value="">Person wählen…</option>
+            {nichtZugewiesen.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : nichtZugewiesen.length > 0 ? (
+          <button
+            onClick={() => setShowSelect(true)}
+            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+          >+ Person</button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function PkvTab() {
+  const qc = useQueryClient()
+  const { data: items = [], isLoading, error } = useQuery({ queryKey: ['pkv'], queryFn: getPkv })
+  const { data: personen = [] } = useQuery({ queryKey: ['personen'], queryFn: getPersonen })
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editValues, setEditValues] = useState<UpdatePkv>({})
+  const [showNew, setShowNew] = useState(false)
+  const [newForm, setNewForm] = useState<CreatePkv>({ name: '' })
+  const [saving, setSaving] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
+  const inv = () => qc.invalidateQueries({ queryKey: ['pkv'] })
+  const createMut = useMutation({ mutationFn: createPkv, onSuccess: () => { inv(); setShowNew(false); setNewForm({ name: '' }) } })
+  const updateMut = useMutation({ mutationFn: ({ id, data }: { id: string; data: UpdatePkv }) => updatePkv(id, data), onSuccess: () => { inv(); setEditId(null) } })
+  const deleteMut = useMutation({ mutationFn: deletePkv, onSuccess: () => { inv(); setDeleteError('') }, onError: (e: Error) => setDeleteError(e.message) })
+  const addPersonMut = useMutation({
+    mutationFn: ({ pkv_id, person_id }: { pkv_id: string; person_id: string }) => addPersonToPkv(pkv_id, person_id),
+    onSuccess: inv,
+  })
+  const removePersonMut = useMutation({
+    mutationFn: ({ pkv_id, person_id }: { pkv_id: string; person_id: string }) => removePersonFromPkv(pkv_id, person_id),
+    onSuccess: inv,
+  })
+
+  const startEdit = (p: Pkv) => { setEditId(p.id); setEditValues({ name: p.name }) }
+  const saveEdit = async () => { setSaving(true); try { await updateMut.mutateAsync({ id: editId!, data: editValues }) } finally { setSaving(false) } }
+  const handleDelete = (id: string) => { if (confirm('PKV wirklich löschen?')) deleteMut.mutate(id) }
+
+  if (isLoading) return <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>Lade...</p>
+  if (error) return <p style={{ fontSize: 13, color: 'var(--rose)', padding: '16px 0' }}>Fehler: {(error as Error).message}</p>
+
+  const editForm = (onSave: () => void, onCancel: () => void) => (
+    <div className="grid grid-cols-1 gap-3">
+      <Field label="Name (Versicherungsname)">
+        <input style={{ padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} />
+      </Field>
+      <div className="flex gap-2">
+        <button className="app-btn-primary" disabled={saving} onClick={onSave}>Sichern</button>
+        <button className="app-btn-secondary" onClick={onCancel}>Abbrechen</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-3">
+      {deleteError && <DeleteError msg={deleteError} onClose={() => setDeleteError('')} />}
+
+      <div className="flex justify-end">
+        <button onClick={() => setShowNew(s => !s)} className="app-btn-primary">
+          {showNew ? 'Abbrechen' : '+ Neue PKV'}
+        </button>
+      </div>
+
+      {showNew && (
+        <div className="rounded-lg p-4" style={{ background: 'var(--teal-dim)', border: '1px solid var(--teal)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Neue PKV</h3>
+          <div style={{ maxWidth: 320 }}>
+            <Field label="Name (z. B. DKV, Debeka, Signal Iduna)">
+              <input
+                style={{ padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }}
+                value={newForm.name}
+                onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="z. B. DKV"
+              />
+            </Field>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button className="app-btn-primary" disabled={!newForm.name.trim()} onClick={() => createMut.mutate(newForm)}>Speichern</button>
+            <button className="app-btn-secondary" onClick={() => setShowNew(false)}>Abbrechen</button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile: Karten */}
+      <div className="sm:hidden space-y-2">
+        {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
+        {items.map(p => editId === p.id ? (
+          <div key={p.id} className="rounded-lg p-3" style={{ background: 'var(--teal-dim)', border: '1px solid var(--teal)' }}>
+            {editForm(saveEdit, () => setEditId(null))}
+          </div>
+        ) : (
+          <div key={p.id} className="rounded-lg p-3 space-y-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex justify-between items-start">
+              <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{p.name}</p>
+              <div className="flex gap-1.5 shrink-0 ml-2">
+                <button className="app-btn-edit" onClick={() => startEdit(p)}>Bearb.</button>
+                <button className="app-btn-danger" onClick={() => handleDelete(p.id)}>Lösch.</button>
+              </div>
+            </div>
+            <PkvPersonenZuweisung
+              pkv={p}
+              allePersonen={personen}
+              onAdd={pid => addPersonMut.mutate({ pkv_id: p.id, person_id: pid })}
+              onRemove={pid => removePersonMut.mutate({ pkv_id: p.id, person_id: pid })}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: Karten */}
+      <div className="hidden sm:block space-y-2">
+        {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
+        {items.map(p => editId === p.id ? (
+          <div key={p.id} className="rounded-lg p-4" style={{ background: 'var(--teal-dim)', border: '1px solid var(--teal)' }}>
+            {editForm(saveEdit, () => setEditId(null))}
+          </div>
+        ) : (
+          <div key={p.id} className="rounded-lg p-4 space-y-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between">
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.name}</span>
+              <div className="flex gap-1.5">
+                <button className="app-btn-edit" onClick={() => startEdit(p)}>Bearbeiten</button>
+                <button className="app-btn-danger" onClick={() => handleDelete(p.id)}>Löschen</button>
+              </div>
+            </div>
+            <PkvPersonenZuweisung
+              pkv={p}
+              allePersonen={personen}
+              onAdd={pid => addPersonMut.mutate({ pkv_id: p.id, person_id: pid })}
+              onRemove={pid => removePersonMut.mutate({ pkv_id: p.id, person_id: pid })}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Satz-Historie ────────────────────────────────────────────────────────────
+
+function SatzHistoriePanel({ person }: { person: Person }) {
+  const qc = useQueryClient()
+  const { data: historie = [], isLoading } = useQuery({
+    queryKey: ['satz-historie', person.id],
+    queryFn: () => getSatzHistorie(person.id),
+  })
+
+  const emptyForm: CreatePersonSatzHistorie = { beihilfe_satz: person.beihilfe_satz, pkv_satz: person.pkv_satz, gueltig_ab: '' }
+  const [showNew, setShowNew] = useState(false)
+  const [newForm, setNewForm] = useState<CreatePersonSatzHistorie>(emptyForm)
+  const [saving, setSaving] = useState(false)
+
+  const inv = () => {
+    qc.invalidateQueries({ queryKey: ['satz-historie', person.id] })
+    qc.invalidateQueries({ queryKey: ['personen'] })
+    qc.invalidateQueries({ queryKey: ['rechnungen'] })
+    qc.invalidateQueries({ queryKey: ['dashboard'] })
+  }
+
+  const createMut = useMutation({
+    mutationFn: (data: CreatePersonSatzHistorie) => createSatzHistorie(person.id, data),
+    onSuccess: () => { inv(); setShowNew(false); setNewForm(emptyForm) },
+  })
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteSatzHistorie(person.id, id),
+    onSuccess: inv,
+  })
+
+  const handleCreate = async () => {
+    if (!newForm.gueltig_ab) return
+    setSaving(true)
+    try { await createMut.mutateAsync(newForm) } finally { setSaving(false) }
+  }
+
+  const inp: React.CSSProperties = { padding: '4px 8px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', width: '100%' }
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Satz-Historie</p>
+        <button
+          onClick={() => { setShowNew(s => !s); setNewForm(emptyForm) }}
+          style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+        >
+          {showNew ? 'Abbrechen' : '+ Neuer Satz'}
+        </button>
+      </div>
+
+      {showNew && (
+        <div className="rounded-md p-3 space-y-2" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)', marginBottom: 8 }}>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Gültig ab</label>
+              <input type="date" style={inp} value={newForm.gueltig_ab} onChange={e => setNewForm(f => ({ ...f, gueltig_ab: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Beihilfe %</label>
+              <input type="number" min="0" max="100" style={inp} value={newForm.beihilfe_satz}
+                onChange={e => setNewForm(f => ({ ...f, beihilfe_satz: parseInt(e.target.value) || 0 }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>PKV %</label>
+              <input type="number" min="0" max="100" style={inp} value={newForm.pkv_satz}
+                onChange={e => setNewForm(f => ({ ...f, pkv_satz: parseInt(e.target.value) || 0 }))} />
+            </div>
+          </div>
+          <button
+            className="app-btn-primary"
+            style={{ fontSize: 11, padding: '4px 12px' }}
+            disabled={saving || !newForm.gueltig_ab}
+            onClick={handleCreate}
+          >
+            {saving ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Lade…</p>
+      ) : historie.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine Einträge</p>
+      ) : (
+        <div className="space-y-1">
+          {(historie as PersonSatzHistorie[]).map((h, i) => {
+            const isLatest = i === 0
+            return (
+              <div key={h.id} className="flex items-center justify-between rounded" style={{ padding: '4px 8px', background: isLatest ? 'var(--green-dim)' : 'var(--surface)', border: `1px solid ${isLatest ? 'var(--green)' : 'var(--border)'}` }}>
+                <div className="flex items-center gap-3">
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                    {h.gueltig_ab === '1900-01-01' ? 'Anfang' : new Date(h.gueltig_ab).toLocaleDateString('de-DE')}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--text)' }}>
+                    Beihilfe {h.beihilfe_satz} % / PKV {h.pkv_satz} %
+                  </span>
+                  {isLatest && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', padding: '1px 5px', borderRadius: 3, background: 'var(--green-dim)', border: '1px solid var(--green)' }}>aktuell</span>}
+                </div>
+                {historie.length > 1 && (
+                  <button
+                    onClick={() => { if (confirm('Diesen Satz-Eintrag löschen?')) deleteMut.mutate(h.id) }}
+                    style={{ fontSize: 13, fontWeight: 700, color: 'var(--rose)', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}
+                    title="Löschen"
+                  >×</button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -186,39 +554,43 @@ function PersonenTab() {
   const [newForm, setNewForm] = useState<CreatePerson>({ name: '', geburtsdatum: '', typ: 'erwachsener', beihilfe_satz: 0, pkv_satz: 0, bre_schwelle: null })
   const [saving, setSaving] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [historiePersonId, setHistoriePersonId] = useState<string | null>(null)
 
   const inv = () => { qc.invalidateQueries({ queryKey: ['personen'] }); qc.invalidateQueries({ queryKey: ['rechnungen'] }) }
   const createMut = useMutation({ mutationFn: createPerson, onSuccess: () => { inv(); setShowNew(false); setNewForm({ name: '', geburtsdatum: '', typ: 'erwachsener', beihilfe_satz: 0, pkv_satz: 0, bre_schwelle: null }) } })
   const updateMut = useMutation({ mutationFn: ({ id, data }: { id: string; data: UpdatePerson }) => updatePerson(id, data), onSuccess: () => { inv(); setEditId(null) } })
   const deleteMut = useMutation({ mutationFn: deletePerson, onSuccess: () => { inv(); setDeleteError('') }, onError: (e: Error) => setDeleteError(e.message) })
 
-  const startEdit = (p: Person) => { setEditId(p.id); setEditValues({ name: p.name, geburtsdatum: p.geburtsdatum, typ: p.typ, beihilfestelle_id: p.beihilfestelle_id ?? '', beihilfe_satz: p.beihilfe_satz, pkv_satz: p.pkv_satz, bre_schwelle: p.bre_schwelle }) }
+  const startEdit = (p: Person) => { setEditId(p.id); setEditValues({ name: p.name, geburtsdatum: p.geburtsdatum, typ: p.typ, beihilfestelle_id: p.beihilfestelle_id ?? '', bre_schwelle: p.bre_schwelle }) }
   const saveEdit = async () => { setSaving(true); try { await updateMut.mutateAsync({ id: editId!, data: editValues }) } finally { setSaving(false) } }
   const handleDelete = (id: string) => { if (confirm('Person wirklich löschen?')) deleteMut.mutate(id) }
 
   const bhMap = Object.fromEntries(beihilfestellen.map(b => [b.id, b.name]))
 
-  if (isLoading) return <p className="text-gray-500 dark:text-gray-400 text-sm py-4">Lade...</p>
-  if (error) return <p className="text-red-600 dark:text-red-400 text-sm py-4">Fehler: {(error as Error).message}</p>
+  if (isLoading) return <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>Lade...</p>
+  if (error) return <p style={{ fontSize: 13, color: 'var(--rose)', padding: '16px 0' }}>Fehler: {(error as Error).message}</p>
 
-  const personEditFields = (vals: UpdatePerson, setVals: (fn: (v: UpdatePerson) => UpdatePerson) => void) => (
+  const inpStyle: React.CSSProperties = { padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }
+  const inpStyleSm: React.CSSProperties = { padding: '5px 8px', fontSize: 12, borderRadius: 5, width: '100%' }
+
+  const personEditFields = (vals: UpdatePerson, setVals: (fn: (v: UpdatePerson) => UpdatePerson) => void, showSatz = false) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      <Field label="Name"><input className={inputCls} value={vals.name ?? ''} onChange={e => setVals(v => ({ ...v, name: e.target.value }))} /></Field>
-      <Field label="Geburtsdatum"><input type="date" className={inputCls} value={vals.geburtsdatum ?? ''} onChange={e => setVals(v => ({ ...v, geburtsdatum: e.target.value }))} /></Field>
+      <Field label="Name"><input style={inpStyle} value={vals.name ?? ''} onChange={e => setVals(v => ({ ...v, name: e.target.value }))} /></Field>
+      <Field label="Geburtsdatum"><input type="date" style={inpStyle} value={vals.geburtsdatum ?? ''} onChange={e => setVals(v => ({ ...v, geburtsdatum: e.target.value }))} /></Field>
       <Field label="Typ">
-        <select className={inputCls} value={vals.typ ?? ''} onChange={e => setVals(v => ({ ...v, typ: e.target.value as UpdatePerson['typ'] }))}>
+        <select style={inpStyle} value={vals.typ ?? ''} onChange={e => setVals(v => ({ ...v, typ: e.target.value as UpdatePerson['typ'] }))}>
           <option value="erwachsener">Erwachsener</option><option value="kind">Kind</option>
         </select>
       </Field>
       <Field label="Beihilfestelle">
-        <select className={inputCls} value={vals.beihilfestelle_id ?? ''} onChange={e => setVals(v => ({ ...v, beihilfestelle_id: e.target.value }))}>
+        <select style={inpStyle} value={vals.beihilfestelle_id ?? ''} onChange={e => setVals(v => ({ ...v, beihilfestelle_id: e.target.value }))}>
           <option value="">— keine —</option>
           {beihilfestellen.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
       </Field>
-      <Field label="Beihilfe-Satz (%)"><input type="number" min="0" max="100" className={inputCls} value={vals.beihilfe_satz ?? 0} onChange={e => setVals(v => ({ ...v, beihilfe_satz: parseInt(e.target.value) || 0 }))} /></Field>
-      <Field label="PKV-Satz (%)"><input type="number" min="0" max="100" className={inputCls} value={vals.pkv_satz ?? 0} onChange={e => setVals(v => ({ ...v, pkv_satz: parseInt(e.target.value) || 0 }))} /></Field>
-      <Field label="BRE-Schwelle (€)"><input type="number" min="0" step="0.01" className={inputCls} placeholder="— keine —" value={vals.bre_schwelle ?? ''} onChange={e => setVals(v => ({ ...v, bre_schwelle: e.target.value === '' ? null : parseFloat(e.target.value) }))} /></Field>
+      {showSatz && <Field label="Beihilfe-Satz (%)"><input type="number" min="0" max="100" style={inpStyle} value={vals.beihilfe_satz ?? 0} onChange={e => setVals(v => ({ ...v, beihilfe_satz: parseInt(e.target.value) || 0 }))} /></Field>}
+      {showSatz && <Field label="PKV-Satz (%)"><input type="number" min="0" max="100" style={inpStyle} value={vals.pkv_satz ?? 0} onChange={e => setVals(v => ({ ...v, pkv_satz: parseInt(e.target.value) || 0 }))} /></Field>}
+      <Field label="BRE-Schwelle (€)"><input type="number" min="0" step="0.01" style={inpStyle} placeholder="— keine —" value={vals.bre_schwelle ?? ''} onChange={e => setVals(v => ({ ...v, bre_schwelle: e.target.value === '' ? null : parseFloat(e.target.value) }))} /></Field>
     </div>
   )
 
@@ -227,93 +599,118 @@ function PersonenTab() {
       {deleteError && <DeleteError msg={deleteError} onClose={() => setDeleteError('')} />}
 
       <div className="flex justify-end">
-        <button onClick={() => setShowNew(s => !s)} className={btnPrimary + ' text-sm px-4'}>
+        <button onClick={() => setShowNew(s => !s)} className="app-btn-primary">
           {showNew ? 'Abbrechen' : '+ Neue Person'}
         </button>
       </div>
 
       {showNew && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neue Person</h3>
-          {personEditFields(newForm as UpdatePerson, fn => setNewForm(f => fn(f as UpdatePerson) as CreatePerson))}
+        <div className="rounded-lg p-4" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Neue Person</h3>
+          {personEditFields(newForm as UpdatePerson, fn => setNewForm(f => fn(f as UpdatePerson) as CreatePerson), true)}
           <div className="flex gap-2 mt-3">
-            <button className={btnPrimary} disabled={!newForm.name || !newForm.geburtsdatum} onClick={() => createMut.mutate(newForm)}>Speichern</button>
-            <button className={btnSecondary} onClick={() => setShowNew(false)}>Abbrechen</button>
+            <button className="app-btn-primary" disabled={!newForm.name || !newForm.geburtsdatum} onClick={() => createMut.mutate(newForm)}>Speichern</button>
+            <button className="app-btn-secondary" onClick={() => setShowNew(false)}>Abbrechen</button>
           </div>
         </div>
       )}
 
       {/* Mobile: Karten */}
       <div className="sm:hidden space-y-2">
-        {personen.length === 0 && <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">Keine Einträge</p>}
+        {personen.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
         {personen.map(p => editId === p.id ? (
-          <div key={p.id} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 space-y-3">
+          <div key={p.id} className="rounded-lg p-3 space-y-3" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
             {personEditFields(editValues, setEditValues)}
             <div className="flex gap-2">
-              <button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button>
-              <button className={btnSecondary} onClick={() => setEditId(null)}>Abbrechen</button>
+              <button className="app-btn-primary" disabled={saving} onClick={saveEdit}>Sichern</button>
+              <button className="app-btn-secondary" onClick={() => setEditId(null)}>Abbrechen</button>
             </div>
           </div>
         ) : (
-          <div key={p.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+          <div key={p.id} className="rounded-lg p-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <div className="flex justify-between items-start">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{p.name}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{p.name}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                   {new Date(p.geburtsdatum).toLocaleDateString('de-DE')} · {p.typ === 'erwachsener' ? 'Erwachsener' : 'Kind'}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
                   {p.beihilfestelle_id ? bhMap[p.beihilfestelle_id] ?? '—' : '— keine Beihilfe —'}
                   {' · '}Beihilfe {p.beihilfe_satz} % / PKV {p.pkv_satz} %
                 </p>
                 {p.bre_schwelle != null && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  <p style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 1 }}>
                     BRE-Schwelle: {p.bre_schwelle.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
                   </p>
                 )}
               </div>
               <div className="flex gap-1.5 shrink-0 ml-2">
-                <button className={btnEdit} onClick={() => startEdit(p)}>Bearb.</button>
-                <button className={btnDelete} onClick={() => handleDelete(p.id)}>Lösch.</button>
+                <button className="app-btn-edit" onClick={() => startEdit(p)}>Bearb.</button>
+                <button className="app-btn-danger" onClick={() => handleDelete(p.id)}>Lösch.</button>
               </div>
             </div>
+            <SatzHistoriePanel person={p} />
           </div>
         ))}
       </div>
 
-      {/* Desktop: Tabelle */}
-      <div className="hidden sm:block bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700">
-            <tr>{th('Name')}{th('Geburtsdatum')}{th('Typ')}{th('Beihilfestelle')}{th('Beihilfe %')}{th('PKV %')}{th('BRE-Schwelle')}<th /></tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {personen.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">Keine Einträge</td></tr>}
-            {personen.map(p => editId === p.id ? (
-              <tr key={p.id} className="bg-blue-50 dark:bg-blue-900/10">
-                <td className="px-3 py-2"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
-                <td className="px-3 py-2"><input type="date" className={inputCls} value={editValues.geburtsdatum ?? ''} onChange={e => setEditValues(v => ({ ...v, geburtsdatum: e.target.value }))} /></td>
-                <td className="px-3 py-2"><select className={inputCls} value={editValues.typ ?? ''} onChange={e => setEditValues(v => ({ ...v, typ: e.target.value as UpdatePerson['typ'] }))}><option value="erwachsener">Erwachsener</option><option value="kind">Kind</option></select></td>
-                <td className="px-3 py-2"><select className={inputCls} value={editValues.beihilfestelle_id ?? ''} onChange={e => setEditValues(v => ({ ...v, beihilfestelle_id: e.target.value }))}><option value="">— keine —</option>{beihilfestellen.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></td>
-                <td className="px-3 py-2"><input type="number" min="0" max="100" className={inputCls} value={editValues.beihilfe_satz ?? 0} onChange={e => setEditValues(v => ({ ...v, beihilfe_satz: parseInt(e.target.value) || 0 }))} /></td>
-                <td className="px-3 py-2"><input type="number" min="0" max="100" className={inputCls} value={editValues.pkv_satz ?? 0} onChange={e => setEditValues(v => ({ ...v, pkv_satz: parseInt(e.target.value) || 0 }))} /></td>
-                <td className="px-3 py-2"><input type="number" min="0" step="0.01" className={inputCls} placeholder="— keine —" value={editValues.bre_schwelle ?? ''} onChange={e => setEditValues(v => ({ ...v, bre_schwelle: e.target.value === '' ? null : parseFloat(e.target.value) }))} /></td>
-                <td className="px-3 py-2 whitespace-nowrap"><div className="flex gap-1"><button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button><button className={btnSecondary} onClick={() => setEditId(null)}>Abbruch</button></div></td>
-              </tr>
-            ) : (
-              <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="px-3 py-3 font-medium text-gray-800 dark:text-gray-200">{p.name}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{new Date(p.geburtsdatum).toLocaleDateString('de-DE')}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400 capitalize">{p.typ}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{p.beihilfestelle_id ? (bhMap[p.beihilfestelle_id] ?? '—') : '—'}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{p.beihilfe_satz} %</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{p.pkv_satz} %</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{p.bre_schwelle != null ? p.bre_schwelle.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : '—'}</td>
-                <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button className={btnEdit} onClick={() => startEdit(p)}>Bearbeiten</button><button className={btnDelete} onClick={() => handleDelete(p.id)}>Löschen</button></div></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Desktop: Tabelle + Satz-Historie-Panel */}
+      <div className="hidden sm:block">
+        <div className="overflow-x-auto rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead className="app-table-head">
+              <tr><th>Name</th><th>Geburtsdatum</th><th>Typ</th><th>Beihilfestelle</th><th>Beihilfe %</th><th>PKV %</th><th>BRE-Schwelle</th><th></th></tr>
+            </thead>
+            <tbody>
+              {personen.length === 0 && <tr><td colSpan={8} className="app-table-empty">Keine Einträge</td></tr>}
+              {personen.map(p => editId === p.id ? (
+                <tr key={p.id} className="app-table-row-edit">
+                  <td style={{ padding: '8px 12px' }}><input style={inpStyleSm} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
+                  <td style={{ padding: '8px 12px' }}><input type="date" style={inpStyleSm} value={editValues.geburtsdatum ?? ''} onChange={e => setEditValues(v => ({ ...v, geburtsdatum: e.target.value }))} /></td>
+                  <td style={{ padding: '8px 12px' }}><select style={inpStyleSm} value={editValues.typ ?? ''} onChange={e => setEditValues(v => ({ ...v, typ: e.target.value as UpdatePerson['typ'] }))}><option value="erwachsener">Erwachsener</option><option value="kind">Kind</option></select></td>
+                  <td style={{ padding: '8px 12px' }}><select style={inpStyleSm} value={editValues.beihilfestelle_id ?? ''} onChange={e => setEditValues(v => ({ ...v, beihilfestelle_id: e.target.value }))}><option value="">— keine —</option>{beihilfestellen.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: 12 }}>{personen.find(p => p.id === editId)?.beihilfe_satz ?? 0} %<br/><span style={{ fontSize: 10, opacity: 0.7 }}>→ Verlauf</span></td>
+                  <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: 12 }}>{personen.find(p => p.id === editId)?.pkv_satz ?? 0} %<br/><span style={{ fontSize: 10, opacity: 0.7 }}>→ Verlauf</span></td>
+                  <td style={{ padding: '8px 12px' }}><input type="number" min="0" step="0.01" style={inpStyleSm} placeholder="— keine —" value={editValues.bre_schwelle ?? ''} onChange={e => setEditValues(v => ({ ...v, bre_schwelle: e.target.value === '' ? null : parseFloat(e.target.value) }))} /></td>
+                  <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}><div className="flex gap-1"><button className="app-btn-primary" style={{ fontSize: 11 }} disabled={saving} onClick={saveEdit}>Sichern</button><button className="app-btn-secondary" style={{ fontSize: 11 }} onClick={() => setEditId(null)}>Abbruch</button></div></td>
+                </tr>
+              ) : (
+                <tr key={p.id} className="app-table-row">
+                  <td style={{ fontWeight: 500, color: 'var(--text)' }}>{p.name}</td>
+                  <td>{new Date(p.geburtsdatum).toLocaleDateString('de-DE')}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{p.typ}</td>
+                  <td>{p.beihilfestelle_id ? (bhMap[p.beihilfestelle_id] ?? '—') : '—'}</td>
+                  <td>{p.beihilfe_satz} %</td>
+                  <td>{p.pkv_satz} %</td>
+                  <td>{p.bre_schwelle != null ? p.bre_schwelle.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : '—'}</td>
+                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                    <div className="flex gap-1">
+                      <button className="app-btn-edit" onClick={() => startEdit(p)}>Bearbeiten</button>
+                      <button
+                        onClick={() => setHistoriePersonId(hp => hp === p.id ? null : p.id)}
+                        style={{ padding: '4px 8px', fontSize: 12, fontWeight: 500, background: 'transparent', color: 'var(--blue)', border: '1px solid var(--blue-dim)', borderRadius: 5, cursor: 'pointer' }}
+                      >
+                        Verlauf
+                      </button>
+                      <button className="app-btn-danger" onClick={() => handleDelete(p.id)}>Löschen</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {historiePersonId && (() => {
+          const p = personen.find(x => x.id === historiePersonId)
+          if (!p) return null
+          return (
+            <div className="rounded-lg p-4 mt-2" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{p.name} — Satz-Verlauf</p>
+              <SatzHistoriePanel person={p} />
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
@@ -343,86 +740,89 @@ function CorrespondentsTab() {
   const saveEdit = async () => { setSaving(true); try { await updateMut.mutateAsync({ id: editId!, data: editValues }) } finally { setSaving(false) } }
   const handleDelete = (id: string) => { if (confirm('Leistungserbringer wirklich löschen?')) deleteMut.mutate(id) }
 
-  if (isLoading) return <p className="text-gray-500 dark:text-gray-400 text-sm py-4">Lade...</p>
-  if (error) return <p className="text-red-600 dark:text-red-400 text-sm py-4">Fehler: {(error as Error).message}</p>
+  if (isLoading) return <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>Lade...</p>
+  if (error) return <p style={{ fontSize: 13, color: 'var(--rose)', padding: '16px 0' }}>Fehler: {(error as Error).message}</p>
+
+  const inpStyle: React.CSSProperties = { padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }
+  const inpStyleSm: React.CSSProperties = { padding: '5px 8px', fontSize: 12, borderRadius: 5, width: '100%' }
 
   return (
     <div className="space-y-3">
       {deleteError && <DeleteError msg={deleteError} onClose={() => setDeleteError('')} />}
 
       <div className="flex justify-end">
-        <button onClick={() => setShowNew(s => !s)} className={btnPrimary + ' text-sm px-4'}>
+        <button onClick={() => setShowNew(s => !s)} className="app-btn-primary">
           {showNew ? 'Abbrechen' : '+ Neuer Leistungserbringer'}
         </button>
       </div>
 
       {showNew && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neuer Leistungserbringer</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-            <Field label="Name"><input className={inputCls} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></Field>
+        <div className="rounded-lg p-4" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Neuer Leistungserbringer</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ maxWidth: 480 }}>
+            <Field label="Name"><input style={inpStyle} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></Field>
             <Field label="Typ">
-              <select className={inputCls} value={newForm.typ} onChange={e => setNewForm(f => ({ ...f, typ: e.target.value as CreateCorrespondent['typ'] }))}>
+              <select style={inpStyle} value={newForm.typ} onChange={e => setNewForm(f => ({ ...f, typ: e.target.value as CreateCorrespondent['typ'] }))}>
                 {corrTypen.map(t => <option key={t} value={t}>{corrTypLabel[t]}</option>)}
               </select>
             </Field>
           </div>
           <div className="flex gap-2 mt-3">
-            <button className={btnPrimary} disabled={!newForm.name} onClick={() => createMut.mutate(newForm)}>Speichern</button>
-            <button className={btnSecondary} onClick={() => setShowNew(false)}>Abbrechen</button>
+            <button className="app-btn-primary" disabled={!newForm.name} onClick={() => createMut.mutate(newForm)}>Speichern</button>
+            <button className="app-btn-secondary" onClick={() => setShowNew(false)}>Abbrechen</button>
           </div>
         </div>
       )}
 
       {/* Mobile: Karten */}
       <div className="sm:hidden space-y-2">
-        {items.length === 0 && <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">Keine Einträge</p>}
+        {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
         {items.map(c => editId === c.id ? (
-          <div key={c.id} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 space-y-3">
+          <div key={c.id} className="rounded-lg p-3 space-y-3" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
             <div className="grid grid-cols-1 gap-3">
-              <Field label="Name"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></Field>
+              <Field label="Name"><input style={inpStyle} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></Field>
               <Field label="Typ">
-                <select className={inputCls} value={editValues.typ ?? ''} onChange={e => setEditValues(v => ({ ...v, typ: e.target.value as UpdateCorrespondent['typ'] }))}>
+                <select style={inpStyle} value={editValues.typ ?? ''} onChange={e => setEditValues(v => ({ ...v, typ: e.target.value as UpdateCorrespondent['typ'] }))}>
                   {corrTypen.map(t => <option key={t} value={t}>{corrTypLabel[t]}</option>)}
                 </select>
               </Field>
             </div>
             <div className="flex gap-2">
-              <button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button>
-              <button className={btnSecondary} onClick={() => setEditId(null)}>Abbrechen</button>
+              <button className="app-btn-primary" disabled={saving} onClick={saveEdit}>Sichern</button>
+              <button className="app-btn-secondary" onClick={() => setEditId(null)}>Abbrechen</button>
             </div>
           </div>
         ) : (
-          <div key={c.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 flex justify-between items-center">
+          <div key={c.id} className="rounded-lg p-3 flex justify-between items-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <div>
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.name}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{corrTypLabel[c.typ]}</p>
+              <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{c.name}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{corrTypLabel[c.typ]}</p>
             </div>
             <div className="flex gap-1.5 shrink-0 ml-2">
-              <button className={btnEdit} onClick={() => startEdit(c)}>Bearb.</button>
-              <button className={btnDelete} onClick={() => handleDelete(c.id)}>Lösch.</button>
+              <button className="app-btn-edit" onClick={() => startEdit(c)}>Bearb.</button>
+              <button className="app-btn-danger" onClick={() => handleDelete(c.id)}>Lösch.</button>
             </div>
           </div>
         ))}
       </div>
 
       {/* Desktop: Tabelle */}
-      <div className="hidden sm:block bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700"><tr>{th('Name')}{th('Typ')}<th /></tr></thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {items.length === 0 && <tr><td colSpan={3} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">Keine Einträge</td></tr>}
+      <div className="hidden sm:block overflow-x-auto rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead className="app-table-head"><tr><th>Name</th><th>Typ</th><th></th></tr></thead>
+          <tbody>
+            {items.length === 0 && <tr><td colSpan={3} className="app-table-empty">Keine Einträge</td></tr>}
             {items.map(c => editId === c.id ? (
-              <tr key={c.id} className="bg-blue-50 dark:bg-blue-900/10">
-                <td className="px-3 py-2"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
-                <td className="px-3 py-2"><select className={inputCls} value={editValues.typ ?? ''} onChange={e => setEditValues(v => ({ ...v, typ: e.target.value as UpdateCorrespondent['typ'] }))}>{corrTypen.map(t => <option key={t} value={t}>{corrTypLabel[t]}</option>)}</select></td>
-                <td className="px-3 py-2 whitespace-nowrap"><div className="flex gap-1"><button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button><button className={btnSecondary} onClick={() => setEditId(null)}>Abbruch</button></div></td>
+              <tr key={c.id} className="app-table-row-edit">
+                <td style={{ padding: '8px 12px' }}><input style={inpStyleSm} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
+                <td style={{ padding: '8px 12px' }}><select style={inpStyleSm} value={editValues.typ ?? ''} onChange={e => setEditValues(v => ({ ...v, typ: e.target.value as UpdateCorrespondent['typ'] }))}>{corrTypen.map(t => <option key={t} value={t}>{corrTypLabel[t]}</option>)}</select></td>
+                <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}><div className="flex gap-1"><button className="app-btn-primary" style={{ fontSize: 11 }} disabled={saving} onClick={saveEdit}>Sichern</button><button className="app-btn-secondary" style={{ fontSize: 11 }} onClick={() => setEditId(null)}>Abbruch</button></div></td>
               </tr>
             ) : (
-              <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="px-3 py-3 font-medium text-gray-800 dark:text-gray-200">{c.name}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{corrTypLabel[c.typ]}</td>
-                <td className="px-3 py-3 whitespace-nowrap"><div className="flex gap-1"><button className={btnEdit} onClick={() => startEdit(c)}>Bearbeiten</button><button className={btnDelete} onClick={() => handleDelete(c.id)}>Löschen</button></div></td>
+              <tr key={c.id} className="app-table-row">
+                <td style={{ fontWeight: 500, color: 'var(--text)' }}>{c.name}</td>
+                <td>{corrTypLabel[c.typ]}</td>
+                <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}><div className="flex gap-1"><button className="app-btn-edit" onClick={() => startEdit(c)}>Bearbeiten</button><button className="app-btn-danger" onClick={() => handleDelete(c.id)}>Löschen</button></div></td>
               </tr>
             ))}
           </tbody>
@@ -474,79 +874,82 @@ function BenutzerTab() {
     }
   }
 
-  if (isLoading) return <p className="text-gray-500 dark:text-gray-400 text-sm py-4">Lade...</p>
-  if (error) return <p className="text-red-600 dark:text-red-400 text-sm py-4">Fehler: {(error as Error).message}</p>
+  if (isLoading) return <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>Lade...</p>
+  if (error) return <p style={{ fontSize: 13, color: 'var(--rose)', padding: '16px 0' }}>Fehler: {(error as Error).message}</p>
+
+  const inpStyle: React.CSSProperties = { padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }
+  const inpStyleSm: React.CSSProperties = { padding: '5px 8px', fontSize: 12, borderRadius: 5, width: '100%' }
 
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <button onClick={() => setShowNew(s => !s)} className={btnPrimary + ' text-sm px-4'}>
+        <button onClick={() => setShowNew(s => !s)} className="app-btn-primary">
           {showNew ? 'Abbrechen' : '+ Neuer Benutzer'}
         </button>
       </div>
 
       {pwSuccess && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded p-3 text-sm text-green-700 dark:text-green-300">
+        <div className="rounded p-3" style={{ background: 'var(--green-dim)', border: '1px solid var(--green)', fontSize: 13, color: 'var(--green)' }}>
           Passwort erfolgreich geändert.
         </div>
       )}
 
       {showNew && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-3">Neuer Benutzer</h3>
+        <div className="rounded-lg p-4" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Neuer Benutzer</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Name"><input className={inputCls} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></Field>
-            <Field label="E-Mail"><input type="email" className={inputCls} value={newForm.email} onChange={e => setNewForm(f => ({ ...f, email: e.target.value }))} /></Field>
-            <Field label="Passwort"><input type="password" className={inputCls} value={newForm.passwort} onChange={e => setNewForm(f => ({ ...f, passwort: e.target.value }))} /></Field>
+            <Field label="Name"><input style={inpStyle} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} /></Field>
+            <Field label="E-Mail"><input type="email" style={inpStyle} value={newForm.email} onChange={e => setNewForm(f => ({ ...f, email: e.target.value }))} /></Field>
+            <Field label="Passwort"><input type="password" style={inpStyle} value={newForm.passwort} onChange={e => setNewForm(f => ({ ...f, passwort: e.target.value }))} /></Field>
           </div>
           <div className="flex gap-2 mt-3">
-            <button className={btnPrimary} disabled={!newForm.name || !newForm.email || !newForm.passwort} onClick={() => createMut.mutate(newForm)}>Speichern</button>
-            <button className={btnSecondary} onClick={() => setShowNew(false)}>Abbrechen</button>
+            <button className="app-btn-primary" disabled={!newForm.name || !newForm.email || !newForm.passwort} onClick={() => createMut.mutate(newForm)}>Speichern</button>
+            <button className="app-btn-secondary" onClick={() => setShowNew(false)}>Abbrechen</button>
           </div>
         </div>
       )}
 
       {pwId && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-yellow-900 dark:text-yellow-200 mb-3">Passwort ändern</h3>
+        <div className="rounded-lg p-4" style={{ background: 'var(--amber-dim)', border: '1px solid var(--amber)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>Passwort ändern</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Aktuelles Passwort"><input type="password" className={inputCls} value={pwForm.altes_passwort} onChange={e => setPwForm(f => ({ ...f, altes_passwort: e.target.value }))} /></Field>
-            <Field label="Neues Passwort"><input type="password" className={inputCls} value={pwForm.neues_passwort} onChange={e => setPwForm(f => ({ ...f, neues_passwort: e.target.value }))} /></Field>
-            <Field label="Bestätigung"><input type="password" className={inputCls} value={pwForm.bestaetigung} onChange={e => setPwForm(f => ({ ...f, bestaetigung: e.target.value }))} /></Field>
+            <Field label="Aktuelles Passwort"><input type="password" style={inpStyle} value={pwForm.altes_passwort} onChange={e => setPwForm(f => ({ ...f, altes_passwort: e.target.value }))} /></Field>
+            <Field label="Neues Passwort"><input type="password" style={inpStyle} value={pwForm.neues_passwort} onChange={e => setPwForm(f => ({ ...f, neues_passwort: e.target.value }))} /></Field>
+            <Field label="Bestätigung"><input type="password" style={inpStyle} value={pwForm.bestaetigung} onChange={e => setPwForm(f => ({ ...f, bestaetigung: e.target.value }))} /></Field>
           </div>
-          {pwError && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{pwError}</p>}
+          {pwError && <p style={{ fontSize: 12, color: 'var(--rose)', marginTop: 8 }}>{pwError}</p>}
           <div className="flex gap-2 mt-3">
-            <button className={btnPrimary} disabled={pwSaving || !pwForm.altes_passwort || !pwForm.neues_passwort} onClick={savePw}>Speichern</button>
-            <button className={btnSecondary} onClick={() => setPwId(null)}>Abbrechen</button>
+            <button className="app-btn-primary" disabled={pwSaving || !pwForm.altes_passwort || !pwForm.neues_passwort} onClick={savePw}>Speichern</button>
+            <button className="app-btn-secondary" onClick={() => setPwId(null)}>Abbrechen</button>
           </div>
         </div>
       )}
 
       {/* Mobile: Karten */}
       <div className="sm:hidden space-y-2">
-        {items.length === 0 && <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">Keine Einträge</p>}
+        {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13, padding: '24px 0' }}>Keine Einträge</p>}
         {items.map(b => editId === b.id ? (
-          <div key={b.id} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 space-y-3">
+          <div key={b.id} className="rounded-lg p-3 space-y-3" style={{ background: 'var(--blue-dim)', border: '1px solid var(--blue)' }}>
             <div className="grid grid-cols-1 gap-3">
-              <Field label="Name"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></Field>
-              <Field label="E-Mail"><input type="email" className={inputCls} value={editValues.email ?? ''} onChange={e => setEditValues(v => ({ ...v, email: e.target.value }))} /></Field>
+              <Field label="Name"><input style={inpStyle} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></Field>
+              <Field label="E-Mail"><input type="email" style={inpStyle} value={editValues.email ?? ''} onChange={e => setEditValues(v => ({ ...v, email: e.target.value }))} /></Field>
             </div>
             <div className="flex gap-2">
-              <button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button>
-              <button className={btnSecondary} onClick={() => setEditId(null)}>Abbrechen</button>
+              <button className="app-btn-primary" disabled={saving} onClick={saveEdit}>Sichern</button>
+              <button className="app-btn-secondary" onClick={() => setEditId(null)}>Abbrechen</button>
             </div>
           </div>
         ) : (
-          <div key={b.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+          <div key={b.id} className="rounded-lg p-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <div className="flex justify-between items-start">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{b.name}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{b.email}</p>
+                <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{b.name}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }} className="truncate">{b.email}</p>
               </div>
               <div className="flex gap-1.5 shrink-0 ml-2">
-                <button className={btnEdit} onClick={() => startEdit(b)}>Bearb.</button>
-                <button className="px-2 py-1 text-xs text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-700 rounded hover:bg-yellow-50 dark:hover:bg-yellow-900/30" onClick={() => openPw(b.id)}>PW</button>
-                <button className={btnDelete} onClick={() => handleDelete(b.id)}>Lösch.</button>
+                <button className="app-btn-edit" onClick={() => startEdit(b)}>Bearb.</button>
+                <button onClick={() => openPw(b.id)} style={{ padding: '4px 8px', fontSize: 12, fontWeight: 500, background: 'transparent', color: 'var(--amber)', border: '1px solid var(--amber-dim)', borderRadius: 5, cursor: 'pointer' }}>PW</button>
+                <button className="app-btn-danger" onClick={() => handleDelete(b.id)}>Lösch.</button>
               </div>
             </div>
           </div>
@@ -554,26 +957,26 @@ function BenutzerTab() {
       </div>
 
       {/* Desktop: Tabelle */}
-      <div className="hidden sm:block bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700"><tr>{th('Name')}{th('E-Mail')}<th /></tr></thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {items.length === 0 && <tr><td colSpan={3} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">Keine Einträge</td></tr>}
+      <div className="hidden sm:block overflow-x-auto rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead className="app-table-head"><tr><th>Name</th><th>E-Mail</th><th></th></tr></thead>
+          <tbody>
+            {items.length === 0 && <tr><td colSpan={3} className="app-table-empty">Keine Einträge</td></tr>}
             {items.map(b => editId === b.id ? (
-              <tr key={b.id} className="bg-blue-50 dark:bg-blue-900/10">
-                <td className="px-3 py-2"><input className={inputCls} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
-                <td className="px-3 py-2"><input type="email" className={inputCls} value={editValues.email ?? ''} onChange={e => setEditValues(v => ({ ...v, email: e.target.value }))} /></td>
-                <td className="px-3 py-2 whitespace-nowrap"><div className="flex gap-1"><button className={btnPrimary} disabled={saving} onClick={saveEdit}>Sichern</button><button className={btnSecondary} onClick={() => setEditId(null)}>Abbruch</button></div></td>
+              <tr key={b.id} className="app-table-row-edit">
+                <td style={{ padding: '8px 12px' }}><input style={inpStyleSm} value={editValues.name ?? ''} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} /></td>
+                <td style={{ padding: '8px 12px' }}><input type="email" style={inpStyleSm} value={editValues.email ?? ''} onChange={e => setEditValues(v => ({ ...v, email: e.target.value }))} /></td>
+                <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}><div className="flex gap-1"><button className="app-btn-primary" style={{ fontSize: 11 }} disabled={saving} onClick={saveEdit}>Sichern</button><button className="app-btn-secondary" style={{ fontSize: 11 }} onClick={() => setEditId(null)}>Abbruch</button></div></td>
               </tr>
             ) : (
-              <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="px-3 py-3 font-medium text-gray-800 dark:text-gray-200">{b.name}</td>
-                <td className="px-3 py-3 text-gray-600 dark:text-gray-400">{b.email}</td>
-                <td className="px-3 py-3 whitespace-nowrap">
+              <tr key={b.id} className="app-table-row">
+                <td style={{ fontWeight: 500, color: 'var(--text)' }}>{b.name}</td>
+                <td>{b.email}</td>
+                <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                   <div className="flex gap-1">
-                    <button className={btnEdit} onClick={() => startEdit(b)}>Bearbeiten</button>
-                    <button className="px-2 py-1 text-xs text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-700 rounded hover:bg-yellow-50 dark:hover:bg-yellow-900/30" onClick={() => openPw(b.id)}>Passwort</button>
-                    <button className={btnDelete} onClick={() => handleDelete(b.id)}>Löschen</button>
+                    <button className="app-btn-edit" onClick={() => startEdit(b)}>Bearbeiten</button>
+                    <button onClick={() => openPw(b.id)} style={{ padding: '4px 8px', fontSize: 12, fontWeight: 500, background: 'transparent', color: 'var(--amber)', border: '1px solid var(--amber-dim)', borderRadius: 5, cursor: 'pointer' }}>Passwort</button>
+                    <button className="app-btn-danger" onClick={() => handleDelete(b.id)}>Löschen</button>
                   </div>
                 </td>
               </tr>
@@ -590,46 +993,47 @@ function BenutzerTab() {
 function GdriveAnleitung() {
   const [open, setOpen] = useState(false)
   return (
-    <div className="rounded-md border border-blue-100 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/20 text-xs text-blue-800 dark:text-blue-200">
+    <div className="rounded-md" style={{ border: '1px solid var(--blue)', background: 'var(--blue-dim)', fontSize: 12, color: 'var(--text)' }}>
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-3 py-2 font-medium text-left"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)' }}
       >
         <span>Einrichtungsanleitung</span>
-        <span className="text-blue-400">{open ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--text-muted)' }}>{open ? '▲' : '▼'}</span>
       </button>
       {open && (
-        <div className="px-3 pb-3 space-y-3 border-t border-blue-100 dark:border-blue-900 pt-2">
+        <div className="px-3 pb-3 space-y-3 pt-2" style={{ borderTop: '1px solid var(--blue)' }}>
           <div>
-            <p className="font-semibold mb-1">1. Google Cloud Projekt & Service Account</p>
-            <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-300">
-              <li>Gehe zu <span className="font-mono">console.cloud.google.com</span> und erstelle ein Projekt</li>
-              <li>Suche nach <span className="font-semibold">Google Drive API</span> und aktiviere sie</li>
-              <li>Navigiere zu <span className="font-semibold">IAM &amp; Admin → Service Accounts → Service Account erstellen</span></li>
-              <li>Name vergeben (z. B. <span className="font-mono">pkv-export</span>), keine Rolle nötig</li>
-              <li>Service Account öffnen → <span className="font-semibold">Schlüssel → Schlüssel hinzufügen → JSON</span></li>
+            <p style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>1. Google Cloud Projekt & Service Account</p>
+            <ol className="list-decimal list-inside space-y-1" style={{ color: 'var(--text-muted)' }}>
+              <li>Gehe zu <span style={{ fontFamily: 'monospace' }}>console.cloud.google.com</span> und erstelle ein Projekt</li>
+              <li>Suche nach <strong>Google Drive API</strong> und aktiviere sie</li>
+              <li>Navigiere zu <strong>IAM &amp; Admin → Service Accounts → Service Account erstellen</strong></li>
+              <li>Name vergeben (z. B. <span style={{ fontFamily: 'monospace' }}>pkv-export</span>), keine Rolle nötig</li>
+              <li>Service Account öffnen → <strong>Schlüssel → Schlüssel hinzufügen → JSON</strong></li>
               <li>Die heruntergeladene JSON-Datei vollständig in das Feld unten einfügen</li>
             </ol>
           </div>
           <div>
-            <p className="font-semibold mb-1">2. Ordner in Google Drive freigeben</p>
-            <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-300">
-              <li>Einen Ordner in Google Drive erstellen (z. B. <span className="font-mono">PKV-Rechnungen</span>)</li>
-              <li>Rechtsklick auf den Ordner → <span className="font-semibold">Freigeben</span></li>
-              <li>Die <span className="font-semibold">client_email</span> aus dem JSON eintragen (z. B. <span className="font-mono">pkv-export@projekt.iam.gserviceaccount.com</span>)</li>
-              <li>Rolle <span className="font-semibold">Bearbeiter</span> wählen → Senden</li>
+            <p style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>2. Ordner in Google Drive freigeben</p>
+            <ol className="list-decimal list-inside space-y-1" style={{ color: 'var(--text-muted)' }}>
+              <li>Einen Ordner in Google Drive erstellen (z. B. <span style={{ fontFamily: 'monospace' }}>PKV-Rechnungen</span>)</li>
+              <li>Rechtsklick auf den Ordner → <strong>Freigeben</strong></li>
+              <li>Die <strong>client_email</strong> aus dem JSON eintragen</li>
+              <li>Rolle <strong>Bearbeiter</strong> wählen → Senden</li>
             </ol>
           </div>
           <div>
-            <p className="font-semibold mb-1">3. Ordner-ID ermitteln</p>
-            <p className="text-blue-700 dark:text-blue-300">
+            <p style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>3. Ordner-ID ermitteln</p>
+            <p style={{ color: 'var(--text-muted)' }}>
               Den Ordner in Google Drive öffnen – die ID steht in der URL:{' '}
-              <span className="font-mono break-all">drive.google.com/drive/folders/<span className="font-semibold underline">1BxiMVs0XRA5…</span></span>
+              <span style={{ fontFamily: 'monospace' }}>drive.google.com/drive/folders/<strong>1BxiMVs0XRA5…</strong></span>
             </p>
           </div>
-          <div className="border-t border-blue-100 dark:border-blue-900 pt-2">
-            <p className="font-semibold mb-1">4. Einrichten &amp; testen</p>
-            <p className="text-blue-700 dark:text-blue-300">JSON einfügen, Ordner-ID eingeben, auf <span className="font-semibold">Verbindung testen</span> klicken. Bei Erfolg speichern – der Google Drive-Export ist damit in der Rechnungstabelle verfügbar.</p>
+          <div style={{ borderTop: '1px solid var(--blue)', paddingTop: 8 }}>
+            <p style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>4. Einrichten &amp; testen</p>
+            <p style={{ color: 'var(--text-muted)' }}>JSON einfügen, Ordner-ID eingeben, auf <strong>Verbindung testen</strong> klicken.</p>
           </div>
         </div>
       )}
@@ -641,14 +1045,15 @@ function EinstellungenTab() {
   const qc = useQueryClient()
   const { data: srv } = useQuery({ queryKey: ['einstellungen'], queryFn: getEinstellungen })
 
-  // Paperless fields
   const [plUrl, setPlUrl] = useState<string | null>(null)
   const [plToken, setPlToken] = useState<string | null>(null)
   const [plTestResult, setPlTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [plTesting, setPlTesting] = useState(false)
   const [plSaving, setPlSaving] = useState(false)
 
-  // Google Drive fields
+  const [n8nUrl, setN8nUrl] = useState<string | null>(null)
+  const [n8nSaving, setN8nSaving] = useState(false)
+
   const [gdJson, setGdJson] = useState('')
   const [gdFolderId, setGdFolderId] = useState<string | null>(null)
   const [gdShowJsonInput, setGdShowJsonInput] = useState(false)
@@ -656,112 +1061,89 @@ function EinstellungenTab() {
   const [gdTesting, setGdTesting] = useState(false)
   const [gdSaving, setGdSaving] = useState(false)
 
-  // Shared save message
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
 
-  // Scan settings (localStorage)
   const [maxDim, setMaxDimState] = useState(() => getScanMaxDim())
   const [jpegQuality, setJpegQualityState] = useState(() => Math.round(getScanJpegQuality() * 100))
 
   const effectivePlUrl = plUrl ?? srv?.paperless_ngx_url ?? ''
   const effectivePlToken = plToken ?? srv?.paperless_ngx_token ?? ''
   const effectiveGdFolderId = gdFolderId ?? srv?.gdrive_folder_id ?? ''
+  const effectiveN8nUrl = n8nUrl ?? srv?.n8n_webhook_url ?? ''
 
   const savePaperless = async () => {
-    setPlSaving(true)
-    setSaveMsg(null)
+    setPlSaving(true); setSaveMsg(null)
     try {
       await updateEinstellungen({ paperless_ngx_url: effectivePlUrl, paperless_ngx_token: effectivePlToken })
-      qc.invalidateQueries({ queryKey: ['einstellungen'] })
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setSaveMsg('Paperless gespeichert')
-      setPlUrl(null)
-      setPlToken(null)
-    } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : 'Fehler')
-    } finally {
-      setPlSaving(false)
-    }
+      qc.invalidateQueries({ queryKey: ['einstellungen'] }); qc.invalidateQueries({ queryKey: ['config'] })
+      setSaveMsg('Paperless gespeichert'); setPlUrl(null); setPlToken(null)
+    } catch (e) { setSaveMsg(e instanceof Error ? e.message : 'Fehler') } finally { setPlSaving(false) }
   }
 
   const testPaperless = async () => {
-    setPlTesting(true)
-    setPlTestResult(null)
-    try {
-      const res = await testPaperlessConnection(effectivePlUrl, effectivePlToken)
-      setPlTestResult(res)
-    } catch (e) {
-      setPlTestResult({ ok: false, message: e instanceof Error ? e.message : 'Fehler' })
-    } finally {
-      setPlTesting(false)
-    }
+    setPlTesting(true); setPlTestResult(null)
+    try { setPlTestResult(await testPaperlessConnection(effectivePlUrl, effectivePlToken)) }
+    catch (e) { setPlTestResult({ ok: false, message: e instanceof Error ? e.message : 'Fehler' }) }
+    finally { setPlTesting(false) }
   }
 
   const saveGdrive = async () => {
-    setGdSaving(true)
-    setSaveMsg(null)
+    setGdSaving(true); setSaveMsg(null)
     try {
       const update: Record<string, string> = { gdrive_folder_id: effectiveGdFolderId }
       if (gdJson.trim()) update.gdrive_service_account_json = gdJson.trim()
       await updateEinstellungen(update)
-      qc.invalidateQueries({ queryKey: ['einstellungen'] })
-      qc.invalidateQueries({ queryKey: ['config'] })
-      setSaveMsg('Google Drive gespeichert')
-      setGdJson('')
-      setGdShowJsonInput(false)
-      setGdFolderId(null)
-    } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : 'Fehler')
-    } finally {
-      setGdSaving(false)
-    }
+      qc.invalidateQueries({ queryKey: ['einstellungen'] }); qc.invalidateQueries({ queryKey: ['config'] })
+      setSaveMsg('Google Drive gespeichert'); setGdJson(''); setGdShowJsonInput(false); setGdFolderId(null)
+    } catch (e) { setSaveMsg(e instanceof Error ? e.message : 'Fehler') } finally { setGdSaving(false) }
   }
 
   const testGdrive = async () => {
     const jsonToTest = gdJson.trim() || null
     if (!jsonToTest && !srv?.gdrive_service_account_configured) {
-      setGdTestResult({ ok: false, message: 'Bitte zuerst Service Account JSON eingeben' })
-      return
+      setGdTestResult({ ok: false, message: 'Bitte zuerst Service Account JSON eingeben' }); return
     }
-    setGdTesting(true)
-    setGdTestResult(null)
+    setGdTesting(true); setGdTestResult(null)
     try {
-      // Wenn kein neues JSON eingegeben: wir können nicht direkt testen (Server gibt JSON nicht zurück)
-      // → Nur testen wenn ein JSON vorliegt
-      if (!jsonToTest) {
-        setGdTestResult({ ok: false, message: 'Für den Test bitte das Service Account JSON erneut eingeben' })
-        return
-      }
-      const res = await testGdriveConnection(jsonToTest, effectiveGdFolderId || undefined)
-      setGdTestResult(res)
-    } catch (e) {
-      setGdTestResult({ ok: false, message: e instanceof Error ? e.message : 'Fehler' })
-    } finally {
-      setGdTesting(false)
-    }
+      if (!jsonToTest) { setGdTestResult({ ok: false, message: 'Für den Test bitte das Service Account JSON erneut eingeben' }); return }
+      setGdTestResult(await testGdriveConnection(jsonToTest, effectiveGdFolderId || undefined))
+    } catch (e) { setGdTestResult({ ok: false, message: e instanceof Error ? e.message : 'Fehler' }) }
+    finally { setGdTesting(false) }
+  }
+
+  const saveN8n = async () => {
+    setN8nSaving(true); setSaveMsg(null)
+    try {
+      await updateEinstellungen({ n8n_webhook_url: effectiveN8nUrl })
+      qc.invalidateQueries({ queryKey: ['einstellungen'] }); qc.invalidateQueries({ queryKey: ['config'] })
+      setSaveMsg('n8n gespeichert'); setN8nUrl(null)
+    } catch (e) { setSaveMsg(e instanceof Error ? e.message : 'Fehler') } finally { setN8nSaving(false) }
   }
 
   const saveScanSettings = () => {
-    setScanMaxDim(maxDim)
-    setScanJpegQuality(jpegQuality / 100)
+    setScanMaxDim(maxDim); setScanJpegQuality(jpegQuality / 100)
     setSaveMsg('Scan-Einstellungen gespeichert')
     setTimeout(() => setSaveMsg(null), 2000)
   }
 
+  const inpStyle: React.CSSProperties = { padding: '6px 10px', fontSize: 13, borderRadius: 5, width: '100%' }
+
+  const sectionStyle: React.CSSProperties = { background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }
+
   return (
     <div className="space-y-6">
       {/* Scan-Einstellungen */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Scan-Einstellungen</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400">Werden lokal im Browser gespeichert.</p>
+      <div style={sectionStyle} className="space-y-4">
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Scan-Einstellungen</h3>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Werden lokal im Browser gespeichert.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Field label={`Max. Auflösung: ${maxDim} px`}>
               <input type="range" min={500} max={8000} step={100} value={maxDim}
-                onChange={e => setMaxDimState(Number(e.target.value))} className="w-full" />
-              <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                onChange={e => setMaxDimState(Number(e.target.value))} style={{ width: '100%' }} />
+              <div className="flex justify-between mt-0.5" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                 <span>500 px</span>
-                <span className="font-medium text-gray-600 dark:text-gray-300">{maxDim} px</span>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{maxDim} px</span>
                 <span>8000 px</span>
               </div>
             </Field>
@@ -769,75 +1151,99 @@ function EinstellungenTab() {
           <div>
             <Field label={`JPEG-Qualität: ${jpegQuality} %`}>
               <input type="range" min={10} max={100} step={1} value={jpegQuality}
-                onChange={e => setJpegQualityState(Number(e.target.value))} className="w-full" />
-              <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                onChange={e => setJpegQualityState(Number(e.target.value))} style={{ width: '100%' }} />
+              <div className="flex justify-between mt-0.5" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                 <span>10 %</span>
-                <span className="font-medium text-gray-600 dark:text-gray-300">{jpegQuality} %</span>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{jpegQuality} %</span>
                 <span>100 %</span>
               </div>
             </Field>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button className={btnPrimary} onClick={saveScanSettings}>Speichern</button>
-          <button className={btnSecondary} onClick={() => { setMaxDimState(DEFAULT_MAX_DIM); setJpegQualityState(Math.round(DEFAULT_JPEG_QUALITY * 100)) }}>
+          <button className="app-btn-primary" onClick={saveScanSettings}>Speichern</button>
+          <button className="app-btn-secondary" onClick={() => { setMaxDimState(DEFAULT_MAX_DIM); setJpegQualityState(Math.round(DEFAULT_JPEG_QUALITY * 100)) }}>
             Zurücksetzen ({DEFAULT_MAX_DIM} px / {Math.round(DEFAULT_JPEG_QUALITY * 100)} %)
           </button>
         </div>
-        {saveMsg?.includes('Scan') && <p className="text-xs text-green-600 dark:text-green-400">{saveMsg}</p>}
+        {saveMsg?.includes('Scan') && <p style={{ fontSize: 12, color: 'var(--green)' }}>{saveMsg}</p>}
       </div>
 
       {/* Paperless NGX */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Paperless NGX</h3>
+      <div style={sectionStyle} className="space-y-4">
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Paperless NGX</h3>
         <div className="grid grid-cols-1 gap-3">
           <Field label="URL (z. B. http://paperless:8000)">
-            <input className={inputCls} value={effectivePlUrl} onChange={e => setPlUrl(e.target.value)}
-              placeholder="http://paperless:8000" />
+            <input style={inpStyle} value={effectivePlUrl} onChange={e => setPlUrl(e.target.value)} placeholder="http://paperless:8000" />
           </Field>
           <Field label="API-Token">
-            <input type="password" className={inputCls} value={effectivePlToken}
-              onChange={e => setPlToken(e.target.value)} placeholder="Token aus Paperless-Einstellungen" />
+            <input type="password" style={inpStyle} value={effectivePlToken} onChange={e => setPlToken(e.target.value)} placeholder="Token aus Paperless-Einstellungen" />
           </Field>
         </div>
         {plTestResult && (
-          <p className={`text-xs ${plTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+          <p style={{ fontSize: 12, color: plTestResult.ok ? 'var(--green)' : 'var(--rose)' }}>
             {plTestResult.ok ? '✓ ' : '✗ '}{plTestResult.message}
           </p>
         )}
-        {saveMsg?.includes('Paperless') && <p className="text-xs text-green-600 dark:text-green-400">{saveMsg}</p>}
+        {saveMsg?.includes('Paperless') && <p style={{ fontSize: 12, color: 'var(--green)' }}>{saveMsg}</p>}
         <div className="flex gap-2 flex-wrap">
-          <button className={btnPrimary} disabled={plSaving} onClick={savePaperless}>
+          <button className="app-btn-primary" disabled={plSaving} onClick={savePaperless}>
             {plSaving ? 'Speichern…' : 'Speichern'}
           </button>
-          <button className={btnSecondary} disabled={plTesting || !effectivePlUrl} onClick={testPaperless}>
+          <button className="app-btn-secondary" disabled={plTesting || !effectivePlUrl} onClick={testPaperless}>
             {plTesting ? 'Teste…' : 'Verbindung testen'}
           </button>
         </div>
       </div>
 
-      {/* Google Drive */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+      {/* n8n KI-Verarbeitung */}
+      <div style={sectionStyle} className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Google Drive Export</h3>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>n8n KI-Verarbeitung</h3>
+          {srv?.n8n_webhook_url && (
+            <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Konfiguriert</span>
+          )}
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          Webhook-URL des n8n-Workflows zum automatischen Verarbeiten von Beihilfebescheiden per KI (Claude).
+        </p>
+        <Field label="Webhook-URL">
+          <input
+            style={inpStyle}
+            value={effectiveN8nUrl}
+            onChange={e => setN8nUrl(e.target.value)}
+            placeholder="https://n8n.fringstar.net/webhook/beihilfebescheid"
+          />
+        </Field>
+        {saveMsg?.includes('n8n') && <p style={{ fontSize: 12, color: 'var(--green)' }}>{saveMsg}</p>}
+        <div className="flex gap-2">
+          <button className="app-btn-primary" disabled={n8nSaving} onClick={saveN8n}>
+            {n8nSaving ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      </div>
+
+      {/* Google Drive */}
+      <div style={sectionStyle} className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Google Drive Export</h3>
           {srv?.gdrive_service_account_configured && (
-            <span className="text-xs text-green-600 dark:text-green-400 font-medium">✓ Konfiguriert</span>
+            <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Konfiguriert</span>
           )}
         </div>
 
         <GdriveAnleitung />
 
         <div className="space-y-3">
-          {/* Service Account JSON */}
           {srv?.gdrive_service_account_configured && !gdShowJsonInput ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Service Account JSON: konfiguriert</span>
-              <button className={btnSecondary} onClick={() => setGdShowJsonInput(true)}>Ersetzen</button>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Service Account JSON: konfiguriert</span>
+              <button className="app-btn-secondary" style={{ fontSize: 11 }} onClick={() => setGdShowJsonInput(true)}>Ersetzen</button>
             </div>
           ) : (
             <Field label="Service Account JSON">
               <textarea
-                className={`${inputCls} font-mono text-xs h-28 resize-y`}
+                style={{ ...inpStyle, fontFamily: 'monospace', fontSize: 11, height: 112, resize: 'vertical' }}
                 value={gdJson}
                 onChange={e => setGdJson(e.target.value)}
                 placeholder={'{\n  "type": "service_account",\n  "client_email": "...",\n  "private_key": "..."\n}'}
@@ -846,37 +1252,25 @@ function EinstellungenTab() {
           )}
 
           <Field label="Ziel-Ordner ID">
-            <input
-              className={inputCls}
-              value={effectiveGdFolderId}
-              onChange={e => setGdFolderId(e.target.value)}
-              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-            />
-            <p className="text-xs text-gray-400 mt-1">
+            <input style={inpStyle} value={effectiveGdFolderId} onChange={e => setGdFolderId(e.target.value)}
+              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+            <p style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 4 }}>
               Die Ordner-ID aus der Google Drive URL: drive.google.com/drive/folders/<strong>ID</strong>
             </p>
           </Field>
         </div>
 
         {gdTestResult && (
-          <p className={`text-xs ${gdTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+          <p style={{ fontSize: 12, color: gdTestResult.ok ? 'var(--green)' : 'var(--rose)' }}>
             {gdTestResult.ok ? '✓ ' : '✗ '}{gdTestResult.message}
           </p>
         )}
-        {saveMsg?.includes('Google') && <p className="text-xs text-green-600 dark:text-green-400">{saveMsg}</p>}
+        {saveMsg?.includes('Google') && <p style={{ fontSize: 12, color: 'var(--green)' }}>{saveMsg}</p>}
         <div className="flex gap-2 flex-wrap">
-          <button
-            className={btnPrimary}
-            disabled={gdSaving || (!gdJson.trim() && !srv?.gdrive_service_account_configured)}
-            onClick={saveGdrive}
-          >
+          <button className="app-btn-primary" disabled={gdSaving || (!gdJson.trim() && !srv?.gdrive_service_account_configured)} onClick={saveGdrive}>
             {gdSaving ? 'Speichern…' : 'Speichern'}
           </button>
-          <button
-            className={btnSecondary}
-            disabled={gdTesting || (!gdJson.trim() && !srv?.gdrive_service_account_configured)}
-            onClick={testGdrive}
-          >
+          <button className="app-btn-secondary" disabled={gdTesting || (!gdJson.trim() && !srv?.gdrive_service_account_configured)} onClick={testGdrive}>
             {gdTesting ? 'Teste…' : 'Verbindung testen'}
           </button>
         </div>
@@ -892,19 +1286,26 @@ export default function StammdatenPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">Stammdaten</h1>
+      <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>Stammdaten</h1>
 
-      <div className="border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-        <nav className="flex gap-1 min-w-max">
+      <div style={{ borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
+        <nav className="flex gap-1" style={{ minWidth: 'max-content' }}>
           {(Object.keys(tabLabels) as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2.5 sm:py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                tab === t
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
+              style={{
+                padding: '8px 16px',
+                fontSize: 13,
+                fontWeight: tab === t ? 600 : 400,
+                color: tab === t ? 'var(--primary)' : 'var(--text-muted)',
+                background: 'none',
+                border: 'none',
+                borderBottom: tab === t ? '2px solid var(--primary)' : '2px solid transparent',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'color 0.15s',
+              } as React.CSSProperties}
             >
               {tabLabels[t]}
             </button>
@@ -915,6 +1316,7 @@ export default function StammdatenPage() {
       {tab === 'personen' && <PersonenTab />}
       {tab === 'correspondents' && <CorrespondentsTab />}
       {tab === 'beihilfestellen' && <BeihilfestellenTab />}
+      {tab === 'pkv' && <PkvTab />}
       {tab === 'benutzer' && <BenutzerTab />}
       {tab === 'einstellungen' && <EinstellungenTab />}
     </div>
