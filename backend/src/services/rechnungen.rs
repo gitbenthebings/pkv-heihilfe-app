@@ -1,30 +1,61 @@
-use crate::models::{Person, rechnung::{Rechnung, RechnungMitStatus}};
+use crate::models::{Person, PersonSatzHistorie, rechnung::{Rechnung, RechnungMitStatus}};
 
 pub fn zahlung_status(bezahlt_am: Option<&str>) -> String {
     if bezahlt_am.is_some() { "bezahlt".to_string() } else { "offen".to_string() }
 }
 
-pub fn beihilfe_status(hat_beihilfestelle: bool, eingereicht_am: Option<&str>) -> Option<String> {
+pub fn beihilfe_status(hat_beihilfestelle: bool, eingereicht_am: Option<&str>, erstattet_betrag: Option<f64>) -> Option<String> {
     if !hat_beihilfestelle { return None; }
+    if erstattet_betrag.is_some() { return Some("beschieden".to_string()); }
     Some(if eingereicht_am.is_some() { "eingereicht".to_string() } else { "offen".to_string() })
 }
 
-pub fn pkv_status(eingereicht_am: Option<&str>) -> String {
+pub fn pkv_status(eingereicht_am: Option<&str>, erstattet_betrag: Option<f64>) -> String {
+    if erstattet_betrag.is_some() { return "beschieden".to_string(); }
     if eingereicht_am.is_some() { "eingereicht".to_string() } else { "offen".to_string() }
 }
 
-pub fn mit_status(rechnung: Rechnung, person: &Person) -> RechnungMitStatus {
+/// Findet den zum Rechnungsdatum gültigen Satz aus der Historie.
+/// Fallback: Person-Aktuellwert wenn keine Historie vorhanden.
+pub fn find_satz_fuer_datum(
+    satz_historie: &[PersonSatzHistorie],
+    person_id: &str,
+    datum: &str,
+) -> Option<(i64, i64)> {
+    let mut entries: Vec<&PersonSatzHistorie> = satz_historie
+        .iter()
+        .filter(|h| h.person_id == person_id)
+        .collect();
+
+    if entries.is_empty() {
+        return None;
+    }
+
+    entries.sort_by(|a, b| b.gueltig_ab.cmp(&a.gueltig_ab));
+
+    // Neuester Eintrag, der <= Rechnungsdatum
+    for entry in &entries {
+        if entry.gueltig_ab.as_str() <= datum {
+            return Some((entry.beihilfe_satz, entry.pkv_satz));
+        }
+    }
+
+    // Rechnung liegt vor dem frühesten Historieneintrag → frühesten verwenden
+    entries.last().map(|h| (h.beihilfe_satz, h.pkv_satz))
+}
+
+pub fn mit_status(rechnung: Rechnung, person: &Person, beihilfe_satz: i64, pkv_satz: i64) -> RechnungMitStatus {
     let hat_beihilfestelle = person.beihilfestelle_id.is_some();
     let betrag = rechnung.betrag as f64 / 100.0;
 
     // Erwartete Anteile (nur wenn Beihilfestelle vorhanden bzw. immer für PKV)
     let beihilfe_anteil_erwartet = if hat_beihilfestelle {
-        Some((betrag * person.beihilfe_satz as f64 / 100.0 * 100.0).round() / 100.0)
+        Some((betrag * beihilfe_satz as f64 / 100.0 * 100.0).round() / 100.0)
     } else {
         None
     };
     let pkv_anteil_erwartet = Some(
-        (betrag * person.pkv_satz as f64 / 100.0 * 100.0).round() / 100.0
+        (betrag * pkv_satz as f64 / 100.0 * 100.0).round() / 100.0
     );
 
     // Differenz: nur wenn erstattet_betrag gesetzt
@@ -37,8 +68,8 @@ pub fn mit_status(rechnung: Rechnung, person: &Person) -> RechnungMitStatus {
 
     RechnungMitStatus {
         zahlung_status: zahlung_status(rechnung.bezahlt_am.as_deref()),
-        beihilfe_status: beihilfe_status(hat_beihilfestelle, rechnung.beihilfe_eingereicht_am.as_deref()),
-        pkv_status: pkv_status(rechnung.pkv_eingereicht_am.as_deref()),
+        beihilfe_status: beihilfe_status(hat_beihilfestelle, rechnung.beihilfe_eingereicht_am.as_deref(), rechnung.beihilfe_erstattet_betrag),
+        pkv_status: pkv_status(rechnung.pkv_eingereicht_am.as_deref(), rechnung.pkv_erstattet_betrag),
         archiviert_status: if rechnung.archiviert_am.is_some() { "archiviert".to_string() } else { "aktiv".to_string() },
         betrag,
         beihilfe_anteil_erwartet,

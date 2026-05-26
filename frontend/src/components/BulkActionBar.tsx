@@ -49,14 +49,6 @@ export default function BulkActionBar({ count, onAction, onExport, onClear, load
                 <span className="hidden sm:inline">Als bezahlt markieren</span>
               </button>
               <button
-                onClick={() => onAction('beihilfe_eingereicht')}
-                disabled={loading}
-                className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-              >
-                <span className="sm:hidden">Beihilfe</span>
-                <span className="hidden sm:inline">Beihilfe: eingereicht</span>
-              </button>
-              <button
                 onClick={() => onAction('pkv_eingereicht')}
                 disabled={loading}
                 className="px-3 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"

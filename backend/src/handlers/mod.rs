@@ -1,11 +1,15 @@
+pub mod aktivitaet;
 pub mod anhaenge;
 pub mod auth;
 pub mod benutzer;
 pub mod beihilfestellen;
+pub mod beihilfe_antraege;
+pub mod beihilfe_bescheide;
 pub mod config;
 pub mod einstellungen;
 pub mod export;
 pub mod personen;
+pub mod pkv;
 pub mod correspondents;
 pub mod rechnungen;
 pub mod dashboard;

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use crate::{
     auth::AuthUser,
     errors::AppError,
-    repositories::{personen::list_by_mandant, rechnungen::list},
-    services::rechnungen::{mit_status, kanban_gruppe},
+    repositories::{self, personen::list_by_mandant, rechnungen::list},
+    services::rechnungen::{mit_status, find_satz_fuer_datum, kanban_gruppe},
     models::RechnungMitStatus,
     AppState,
 };
@@ -57,13 +57,16 @@ pub async fn get(
 ) -> Result<Json<DashboardData>, AppError> {
     let personen = list_by_mandant(&state.db, &auth.mandant_id).await?;
     let personen_map: HashMap<String, _> = personen.iter().map(|p| (p.id.clone(), p.clone())).collect();
+    let satz_historie = repositories::personen_satz_historie::list_for_mandant(&state.db, &auth.mandant_id).await?;
 
-    let rechnungen = list(&state.db, &auth.mandant_id, None, false).await?;
+    let rechnungen = list(&state.db, &auth.mandant_id, None, false, None).await?;
     let rechnungen_mit_status: Vec<RechnungMitStatus> = rechnungen
         .into_iter()
         .filter_map(|r| {
             let person = personen_map.get(&r.person_id)?;
-            Some(mit_status(r, person))
+            let (bh_satz, pkv_satz) = find_satz_fuer_datum(&satz_historie, &r.person_id, &r.datum)
+                .unwrap_or((person.beihilfe_satz, person.pkv_satz));
+            Some(mit_status(r, person, bh_satz, pkv_satz))
         })
         .collect();
 

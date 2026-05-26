@@ -1,24 +1,44 @@
 use crate::{db::Db, errors::AppError, models::{Beihilfestelle, CreateBeihilfestelle, UpdateBeihilfestelle}};
+use crate::models::beihilfestelle::BeihilfestelleRow;
+
+pub async fn list_personen_ids(db: &Db, beihilfestelle_id: &str) -> Result<Vec<String>, AppError> {
+    let ids = sqlx::query_scalar::<_, String>(
+        "SELECT person_id FROM beihilfestelle_personen WHERE beihilfestelle_id = ? ORDER BY person_id"
+    )
+    .bind(beihilfestelle_id)
+    .fetch_all(db)
+    .await?;
+    Ok(ids)
+}
 
 pub async fn list_by_mandant(db: &Db, mandant_id: &str) -> Result<Vec<Beihilfestelle>, AppError> {
-    let items = sqlx::query_as::<_, Beihilfestelle>(
+    let rows = sqlx::query_as::<_, BeihilfestelleRow>(
         "SELECT id, mandant_id, name, dienstherr_typ FROM beihilfestelle WHERE mandant_id = ? ORDER BY name"
     )
     .bind(mandant_id)
     .fetch_all(db)
     .await?;
-    Ok(items)
+
+    let mut result = Vec::new();
+    for row in rows {
+        let personen_ids = list_personen_ids(db, &row.id).await?;
+        result.push(Beihilfestelle::from_row(row, personen_ids));
+    }
+    Ok(result)
 }
 
 pub async fn get(db: &Db, id: &str, mandant_id: &str) -> Result<Option<Beihilfestelle>, AppError> {
-    let item = sqlx::query_as::<_, Beihilfestelle>(
+    let row = sqlx::query_as::<_, BeihilfestelleRow>(
         "SELECT id, mandant_id, name, dienstherr_typ FROM beihilfestelle WHERE id = ? AND mandant_id = ?"
     )
     .bind(id)
     .bind(mandant_id)
     .fetch_optional(db)
     .await?;
-    Ok(item)
+
+    let Some(row) = row else { return Ok(None) };
+    let personen_ids = list_personen_ids(db, &row.id).await?;
+    Ok(Some(Beihilfestelle::from_row(row, personen_ids)))
 }
 
 pub async fn create(db: &Db, mandant_id: &str, input: &CreateBeihilfestelle) -> Result<Beihilfestelle, AppError> {
@@ -60,5 +80,29 @@ pub async fn delete(db: &Db, id: &str, mandant_id: &str) -> Result<(), AppError>
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    Ok(())
+}
+
+pub async fn add_person(db: &Db, beihilfestelle_id: &str, person_id: &str, mandant_id: &str) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO beihilfestelle_personen (beihilfestelle_id, person_id, mandant_id) VALUES (?, ?, ?)"
+    )
+    .bind(beihilfestelle_id)
+    .bind(person_id)
+    .bind(mandant_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn remove_person(db: &Db, beihilfestelle_id: &str, person_id: &str, mandant_id: &str) -> Result<(), AppError> {
+    sqlx::query(
+        "DELETE FROM beihilfestelle_personen WHERE beihilfestelle_id = ? AND person_id = ? AND mandant_id = ?"
+    )
+    .bind(beihilfestelle_id)
+    .bind(person_id)
+    .bind(mandant_id)
+    .execute(db)
+    .await?;
     Ok(())
 }

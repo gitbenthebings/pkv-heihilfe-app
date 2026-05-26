@@ -21,6 +21,23 @@ export interface Beihilfestelle {
   mandant_id: string
   name: string
   dienstherr_typ: 'bund' | 'land' | 'kommune'
+  personen_ids: string[]
+}
+
+export interface Pkv {
+  id: string
+  mandant_id: string
+  name: string
+  erstellt_am: string
+  personen_ids: string[]
+}
+
+export interface CreatePkv {
+  name: string
+}
+
+export interface UpdatePkv {
+  name?: string
 }
 
 export interface CreateBeihilfestelle {
@@ -43,6 +60,21 @@ export interface Person {
   beihilfe_satz: number
   pkv_satz: number
   bre_schwelle: number | null
+}
+
+export interface PersonSatzHistorie {
+  id: string
+  person_id: string
+  beihilfe_satz: number
+  pkv_satz: number
+  gueltig_ab: string
+  erstellt_am: string
+}
+
+export interface CreatePersonSatzHistorie {
+  beihilfe_satz: number
+  pkv_satz: number
+  gueltig_ab: string
 }
 
 export interface CreatePerson {
@@ -99,8 +131,8 @@ export interface Rechnung {
   beihilfe_erstattet_betrag: number | null
   pkv_erstattet_betrag: number | null
   zahlung_status: 'offen' | 'bezahlt'
-  beihilfe_status: 'offen' | 'eingereicht' | null
-  pkv_status: 'offen' | 'eingereicht'
+  beihilfe_status: 'offen' | 'eingereicht' | 'beschieden' | null
+  pkv_status: 'offen' | 'eingereicht' | 'beschieden'
   archiviert_status: 'aktiv' | 'archiviert'
   beihilfe_anteil_erwartet: number | null
   pkv_anteil_erwartet: number | null
@@ -156,6 +188,14 @@ export interface Anhang {
   hochgeladen_am: string
 }
 
+export interface BescheidAnhang {
+  id: string
+  bescheid_id: string
+  dateiname: string
+  groesse: number
+  hochgeladen_am: string
+}
+
 export type BulkAction = 'bezahlt' | 'beihilfe_eingereicht' | 'pkv_eingereicht' | 'archivieren' | 'dearchivieren'
 
 export interface CreateRechnung {
@@ -186,4 +226,133 @@ export interface UpdateRechnung {
   pkv_gescannt?: boolean
   beihilfe_gescannt?: boolean
   pkv_verzicht?: boolean
+}
+
+// ── Beihilfe-Anträge ─────────────────────────────────────────────────────────
+
+export type AntragStatus = 'entwurf' | 'versendet' | 'in_bearbeitung' | 'beschieden' | 'archiviert'
+
+export interface BeihilfeAntrag {
+  id: string
+  mandant_id: string
+  typ: 'beihilfe' | 'pkv'
+  beihilfestelle_id: string | null
+  pkv_id: string | null
+  pkv_versicherer: string | null
+  referenz_nr: number
+  titel: string | null
+  status: AntragStatus
+  versendet_am: string | null
+  notiz: string | null
+  paperless_share_url: string | null
+  erstellt_am: string
+}
+
+export interface AntragRechnung {
+  antrag_id: string
+  rechnung_id: string
+  widerspruch: boolean
+  hinzugefuegt_am: string
+}
+
+export interface CreateBeihilfeAntrag {
+  typ?: 'beihilfe' | 'pkv'
+  beihilfestelle_id?: string
+  pkv_id?: string
+  pkv_versicherer?: string
+  titel?: string
+  notiz?: string
+}
+
+export interface UpdateBeihilfeAntrag {
+  beihilfestelle_id?: string
+  pkv_id?: string | null
+  pkv_versicherer?: string | null
+  titel?: string
+  notiz?: string
+  versendet_am?: string
+  paperless_share_url?: string | null
+}
+
+export interface SetAntragStatus {
+  status: AntragStatus
+  versendet_am?: string
+}
+
+// ── Beihilfe-Bescheide ───────────────────────────────────────────────────────
+
+export type BescheidTyp = 'erstbescheid' | 'widerspruchsbescheid'
+
+export interface BeihilfeBescheid {
+  id: string
+  mandant_id: string
+  antrag_id: string
+  aktenzeichen: string | null
+  bescheid_datum: string
+  eingangsdatum: string | null
+  erstattungsbetrag_gesamt: number // Cent
+  typ: BescheidTyp
+  notiz: string | null
+  erstellt_am: string
+}
+
+export interface BescheidPosition {
+  id: string
+  bescheid_id: string
+  rechnung_id: string
+  tatsaechliche_kosten: number | null
+  anerkannt_betrag: number | null
+  abgelehnt_betrag: number | null
+  ablehnungsgrund: string | null
+}
+
+export interface CreateBeihilfeBescheid {
+  aktenzeichen?: string
+  bescheid_datum: string
+  eingangsdatum?: string
+  erstattungsbetrag_gesamt: number
+  typ?: BescheidTyp
+  notiz?: string
+}
+
+export interface UpdateBeihilfeBescheid {
+  aktenzeichen?: string
+  bescheid_datum?: string
+  eingangsdatum?: string
+  erstattungsbetrag_gesamt?: number
+  typ?: BescheidTyp
+  notiz?: string
+}
+
+export interface CreateBescheidPosition {
+  rechnung_id: string
+  tatsaechliche_kosten?: number | null
+  anerkannt_betrag?: number
+  abgelehnt_betrag?: number
+  ablehnungsgrund?: string
+}
+
+export interface UpdateBescheidPosition {
+  tatsaechliche_kosten?: number | null
+  anerkannt_betrag?: number
+  abgelehnt_betrag?: number
+  ablehnungsgrund?: string
+}
+
+// ── Aktivitätslog ────────────────────────────────────────────────────────────
+
+export interface AktivitaetDiff {
+  feld: string
+  alt: string | null
+  neu: string | null
+}
+
+export interface RechnungAktivitaet {
+  id: string
+  mandant_id: string
+  rechnung_id: string
+  benutzer_id: string | null
+  aktion: string
+  aenderungen: string // JSON-String
+  erstellt_am: string
 }

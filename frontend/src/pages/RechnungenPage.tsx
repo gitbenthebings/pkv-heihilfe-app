@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getRechnungen, createRechnung, updateRechnung, deleteRechnung, bulkAction } from '../api/rechnungen'
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
+import { useJahr } from '../context/JahrContext'
+import { getRechnungen, createRechnung, deleteRechnung, bulkAction } from '../api/rechnungen'
 import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
 import { getConfig } from '../api/config'
@@ -9,21 +11,38 @@ import RechnungenTable from '../components/RechnungenTable'
 import PersonFilter from '../components/PersonFilter'
 import BulkActionBar from '../components/BulkActionBar'
 import RechnungForm from '../components/RechnungForm'
-import type { BulkAction, CreateRechnung, UpdateRechnung } from '../types'
+import RechnungDetailSlider from '../components/RechnungDetailSlider'
+import type { BulkAction, CreateRechnung, Rechnung } from '../types'
 import type { ExportProvider, ExportResult } from '../api/export'
 
 export default function RechnungenPage() {
   const qc = useQueryClient()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { jahr } = useJahr()
   const [selectedPersonId, setSelectedPersonId] = useState<string | undefined>()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [showForm, setShowForm] = useState(false)
+  const kopieVonState = (location.state as { kopieVon?: Rechnung } | null)?.kopieVon ?? null
+  const [kopieVon, setKopieVon] = useState<Rechnung | null>(kopieVonState)
+  const [showForm, setShowForm] = useState(kopieVonState !== null)
   const [archivModus, setArchivModus] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
 
+  const sliderRechnungId = searchParams.get('rechnung')
+
+  const openSlider = (id: string) => {
+    setSearchParams(p => { p.set('rechnung', id); return p })
+  }
+
+  const closeSlider = () => {
+    setSearchParams(p => { p.delete('rechnung'); return p })
+  }
+
   const { data: rechnungen = [], isLoading, error } = useQuery({
-    queryKey: ['rechnungen', selectedPersonId, archivModus],
-    queryFn: () => getRechnungen(selectedPersonId, archivModus),
+    queryKey: ['rechnungen', selectedPersonId, archivModus, archivModus ? undefined : jahr],
+    queryFn: () => getRechnungen(selectedPersonId, archivModus, archivModus ? undefined : jahr),
     refetchInterval: (query) => {
       if (!archivModus || !config?.paperless_ngx_url) return false
       const data = query.state.data ?? []
@@ -43,12 +62,7 @@ export default function RechnungenPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: CreateRechnung) => createRechnung(data),
-    onSuccess: () => { invalidate(); setShowForm(false) },
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateRechnung }) => updateRechnung(id, data),
-    onSuccess: invalidate,
+    onSuccess: () => { invalidate(); setShowForm(false); setKopieVon(null) },
   })
 
   const deleteMutation = useMutation({
@@ -102,10 +116,6 @@ export default function RechnungenPage() {
     deleteMutation.mutate(id)
   }
 
-  const handleUpdate = async (id: string, data: UpdateRechnung) => {
-    await updateMutation.mutateAsync({ id, data })
-  }
-
   const handleArchivToggle = async (id: string, archivieren: boolean) => {
     await bulkMutation.mutateAsync({
       ids: [id],
@@ -121,7 +131,7 @@ export default function RechnungenPage() {
   return (
     <div className="space-y-4 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">Rechnungen</h1>
+        <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>Rechnungen</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <PersonFilter
             personen={personen}
@@ -129,20 +139,16 @@ export default function RechnungenPage() {
             onChange={setSelectedPersonId}
           />
           {/* Archiv-Toggle */}
-          <div className="flex rounded-md overflow-hidden border border-gray-300 dark:border-gray-600 text-sm">
+          <div style={{ display: 'flex', borderRadius: 7, overflow: 'hidden', border: '1px solid var(--border)' }}>
             <button
               onClick={() => switchModus(false)}
-              className={`px-3 py-2 sm:py-1.5 ${!archivModus
-                ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: !archivModus ? 'var(--primary)' : 'var(--surface)', color: !archivModus ? '#fff' : 'var(--text-muted)', border: 'none', cursor: 'pointer' }}
             >
               Aktiv
             </button>
             <button
               onClick={() => switchModus(true)}
-              className={`px-3 py-2 sm:py-1.5 border-l border-gray-300 dark:border-gray-600 ${archivModus
-                ? 'bg-amber-600 text-white'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: archivModus ? 'var(--amber)' : 'var(--surface)', color: archivModus ? '#fff' : 'var(--text-muted)', border: 'none', borderLeft: '1px solid var(--border)', cursor: 'pointer' }}
             >
               Archiv
             </button>
@@ -150,7 +156,7 @@ export default function RechnungenPage() {
           {!archivModus && (
             <button
               onClick={() => setShowForm(s => !s)}
-              className="px-4 py-2 sm:py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+              style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: showForm ? 'var(--surface-hi)' : 'var(--primary)', color: showForm ? 'var(--text-muted)' : '#fff', border: showForm ? '1px solid var(--border)' : 'none', borderRadius: 7, cursor: 'pointer' }}
             >
               {showForm ? 'Abbrechen' : '+ Neue Rechnung'}
             </button>
@@ -162,8 +168,14 @@ export default function RechnungenPage() {
         <RechnungForm
           personen={personen}
           correspondents={correspondents}
+          initialValues={kopieVon ? {
+            person_id: kopieVon.person_id,
+            leistungserbringer_id: kopieVon.leistungserbringer_id,
+            typ: kopieVon.typ,
+            betrag: kopieVon.betrag,
+          } : undefined}
           onSubmit={(data) => createMutation.mutateAsync(data).then(() => {})}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => { setShowForm(false); setKopieVon(null); navigate(location.pathname, { replace: true, state: null }) }}
         />
       )}
 
@@ -196,7 +208,7 @@ export default function RechnungenPage() {
       {error && <p className="text-red-600 dark:text-red-400 text-sm">Fehler: {(error as Error).message}</p>}
 
       {!isLoading && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div style={{ background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden' }}>
           {archivModus && (
             <div className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-700">
               <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -211,14 +223,25 @@ export default function RechnungenPage() {
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onToggleAll={toggleAll}
-            onUpdate={handleUpdate}
             onDelete={handleDelete}
             onArchivToggle={handleArchivToggle}
+            onOpenSlider={openSlider}
             archivModus={archivModus}
             paperlessNgxUrl={config?.paperless_ngx_url}
           />
         </div>
       )}
+
+      <RechnungDetailSlider
+        rechnungId={sliderRechnungId}
+        onClose={closeSlider}
+        onUpdate={() => qc.invalidateQueries({ queryKey: ['rechnungen'] })}
+        onKopieren={(r) => {
+          setKopieVon(r)
+          setShowForm(true)
+          closeSlider()
+        }}
+      />
 
       <BulkActionBar
         count={selectedIds.size}

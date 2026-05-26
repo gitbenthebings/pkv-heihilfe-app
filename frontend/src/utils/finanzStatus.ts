@@ -26,13 +26,17 @@ export interface FinanzKennzahlen {
   pkvErwartetBetrag: number              // Summe pkv_anteil_erwartet der Abgerechneten
   pkvDifferenz: number                   // erstattet − erwartet
 
+  // Eigenanteil (nur für vollständig abgerechnete Rechnungen)
+  eigenanteilBetrag: number              // betrag − beihilfe_erstattet − pkv_erstattet
+
   // BRE pro Person
   breStatus: BrePersonStatus[]
 }
 
 export function berechneFinanzKennzahlen(
   rechnungen: Rechnung[],
-  personenById: Map<string, Person>
+  personenById: Map<string, Person>,
+  breJahr?: number,
 ): FinanzKennzahlen {
   let offenBetrag = 0
   let bezahltBetrag = 0
@@ -42,8 +46,9 @@ export function berechneFinanzKennzahlen(
   let pkvAusstehendBetrag = 0
   let pkvErstattetBetrag = 0
   let pkvErwartetBetrag = 0
+  let eigenanteilBetrag = 0
 
-  // BRE: pro Person
+  // BRE: pro Person, nur für breJahr (setzt jährlich zurück)
   const breMap = new Map<string, {
     pkvNochNicht: number
     pkvBereits: number
@@ -77,16 +82,28 @@ export function berechneFinanzKennzahlen(
       pkvErwartetBetrag += r.pkv_anteil_erwartet ?? 0
     }
 
-    // BRE-Akkumulation pro Person
-    const pid = r.person_id
-    if (!breMap.has(pid)) breMap.set(pid, { pkvNochNicht: 0, pkvBereits: 0 })
-    const entry = breMap.get(pid)!
-    const pkvAnteil = r.pkv_anteil_erwartet ?? 0
+    // Eigenanteil: nur wenn PKV UND (BH oder keine BH-Stelle) vollständig abgerechnet
+    if (r.pkv_erstattet_betrag !== null) {
+      const person = personenById.get(r.person_id)
+      const hatBeihilfe = person?.beihilfestelle_id != null
+      if (!hatBeihilfe || r.beihilfe_erstattet_betrag !== null) {
+        eigenanteilBetrag += betrag - (r.beihilfe_erstattet_betrag ?? 0) - r.pkv_erstattet_betrag
+      }
+    }
 
-    if (r.pkv_eingereicht_am !== null) {
-      entry.pkvBereits += pkvAnteil
-    } else if (!r.pkv_verzicht) {
-      entry.pkvNochNicht += pkvAnteil
+    // BRE-Akkumulation pro Person – nur für das Bezugsjahr
+    const rechnungJahr = new Date(r.datum).getFullYear()
+    if (!breJahr || rechnungJahr === breJahr) {
+      const pid = r.person_id
+      if (!breMap.has(pid)) breMap.set(pid, { pkvNochNicht: 0, pkvBereits: 0 })
+      const entry = breMap.get(pid)!
+      const pkvAnteil = r.pkv_anteil_erwartet ?? 0
+
+      if (r.pkv_eingereicht_am !== null) {
+        entry.pkvBereits += pkvAnteil
+      } else if (!r.pkv_verzicht) {
+        entry.pkvNochNicht += pkvAnteil
+      }
     }
   }
 
@@ -136,6 +153,7 @@ export function berechneFinanzKennzahlen(
     pkvErstattetBetrag,
     pkvErwartetBetrag,
     pkvDifferenz: pkvErstattetBetrag - pkvErwartetBetrag,
+    eigenanteilBetrag,
     breStatus,
   }
 }

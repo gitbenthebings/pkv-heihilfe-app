@@ -1,0 +1,1 @@
+ALTER TABLE beihilfe_bescheid_position ADD COLUMN tatsaechliche_kosten INTEGER;

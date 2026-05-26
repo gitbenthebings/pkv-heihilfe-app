@@ -1053,6 +1053,8 @@ function EinstellungenTab() {
 
   const [n8nUrl, setN8nUrl] = useState<string | null>(null)
   const [n8nSaving, setN8nSaving] = useState(false)
+  const [n8nRechnungUrl, setN8nRechnungUrl] = useState<string | null>(null)
+  const [n8nRechnungSaving, setN8nRechnungSaving] = useState(false)
 
   const [gdJson, setGdJson] = useState('')
   const [gdFolderId, setGdFolderId] = useState<string | null>(null)
@@ -1070,6 +1072,7 @@ function EinstellungenTab() {
   const effectivePlToken = plToken ?? srv?.paperless_ngx_token ?? ''
   const effectiveGdFolderId = gdFolderId ?? srv?.gdrive_folder_id ?? ''
   const effectiveN8nUrl = n8nUrl ?? srv?.n8n_webhook_url ?? ''
+  const effectiveN8nRechnungUrl = n8nRechnungUrl ?? srv?.n8n_rechnung_webhook_url ?? ''
 
   const savePaperless = async () => {
     setPlSaving(true); setSaveMsg(null)
@@ -1118,6 +1121,15 @@ function EinstellungenTab() {
       qc.invalidateQueries({ queryKey: ['einstellungen'] }); qc.invalidateQueries({ queryKey: ['config'] })
       setSaveMsg('n8n gespeichert'); setN8nUrl(null)
     } catch (e) { setSaveMsg(e instanceof Error ? e.message : 'Fehler') } finally { setN8nSaving(false) }
+  }
+
+  const saveN8nRechnung = async () => {
+    setN8nRechnungSaving(true); setSaveMsg(null)
+    try {
+      await updateEinstellungen({ n8n_rechnung_webhook_url: effectiveN8nRechnungUrl })
+      qc.invalidateQueries({ queryKey: ['einstellungen'] }); qc.invalidateQueries({ queryKey: ['config'] })
+      setSaveMsg('n8n Rechnung gespeichert'); setN8nRechnungUrl(null)
+    } catch (e) { setSaveMsg(e instanceof Error ? e.message : 'Fehler') } finally { setN8nRechnungSaving(false) }
   }
 
   const saveScanSettings = () => {
@@ -1200,14 +1212,16 @@ function EinstellungenTab() {
       <div style={sectionStyle} className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>n8n KI-Verarbeitung</h3>
-          {srv?.n8n_webhook_url && (
+          {(srv?.n8n_webhook_url || srv?.n8n_rechnung_webhook_url) && (
             <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Konfiguriert</span>
           )}
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          Webhook-URL des n8n-Workflows zum automatischen Verarbeiten von Beihilfebescheiden per KI (Claude).
+          Webhook-URLs der n8n-Workflows zur automatischen Verarbeitung per KI (Claude).
+          Die Workflows befinden sich in <code style={{ fontSize: 11 }}>/home/ben/docker/n8n/</code>.
         </p>
-        <Field label="Webhook-URL">
+
+        <Field label="Beihilfebescheid-Webhook-URL">
           <input
             style={inpStyle}
             value={effectiveN8nUrl}
@@ -1215,10 +1229,31 @@ function EinstellungenTab() {
             placeholder="https://n8n.fringstar.net/webhook/beihilfebescheid"
           />
         </Field>
-        {saveMsg?.includes('n8n') && <p style={{ fontSize: 12, color: 'var(--green)' }}>{saveMsg}</p>}
+        <p style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: -8 }}>
+          Bescheid-PDF hochladen → KI extrahiert Daten → Bescheid + Positionen werden automatisch angelegt.
+        </p>
+        {saveMsg === 'n8n gespeichert' && <p style={{ fontSize: 12, color: 'var(--green)' }}>{saveMsg}</p>}
         <div className="flex gap-2">
           <button className="app-btn-primary" disabled={n8nSaving} onClick={saveN8n}>
             {n8nSaving ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+          <Field label="Rechnungsanalyse-Webhook-URL">
+            <input
+              style={inpStyle}
+              value={effectiveN8nRechnungUrl}
+              onChange={e => setN8nRechnungUrl(e.target.value)}
+              placeholder="https://n8n.fringstar.net/webhook/rechnung-analyse"
+            />
+          </Field>
+          <p style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 4, marginBottom: 8 }}>
+            Rechnung als PDF hochladen → KI liest Betrag, Datum, Leistungserbringer aus → Felder in neuem Rechnungsformular vorausfüllen.
+          </p>
+          {saveMsg === 'n8n Rechnung gespeichert' && <p style={{ fontSize: 12, color: 'var(--green)', marginBottom: 8 }}>{saveMsg}</p>}
+          <button className="app-btn-primary" disabled={n8nRechnungSaving} onClick={saveN8nRechnung}>
+            {n8nRechnungSaving ? 'Speichern…' : 'Speichern'}
           </button>
         </div>
       </div>

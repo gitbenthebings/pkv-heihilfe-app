@@ -85,11 +85,23 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/beihilfestellen", post(handlers::beihilfestellen::create))
         .route("/api/beihilfestellen/:id", patch(handlers::beihilfestellen::update))
         .route("/api/beihilfestellen/:id", delete(handlers::beihilfestellen::delete))
+        .route("/api/beihilfestellen/:id/personen", post(handlers::beihilfestellen::add_person))
+        .route("/api/beihilfestellen/:id/personen/:pid", delete(handlers::beihilfestellen::remove_person))
+        // PKV
+        .route("/api/pkv", get(handlers::pkv::list))
+        .route("/api/pkv", post(handlers::pkv::create))
+        .route("/api/pkv/:id", patch(handlers::pkv::update))
+        .route("/api/pkv/:id", delete(handlers::pkv::delete))
+        .route("/api/pkv/:id/personen", post(handlers::pkv::add_person))
+        .route("/api/pkv/:id/personen/:pid", delete(handlers::pkv::remove_person))
         // Personen
         .route("/api/personen", get(handlers::personen::list))
         .route("/api/personen", post(handlers::personen::create))
         .route("/api/personen/:id", patch(handlers::personen::update))
         .route("/api/personen/:id", delete(handlers::personen::delete))
+        .route("/api/personen/:id/satz-historie", get(handlers::personen::list_satz_historie))
+        .route("/api/personen/:id/satz-historie", post(handlers::personen::create_satz_historie))
+        .route("/api/personen/:id/satz-historie/:hid", delete(handlers::personen::delete_satz_historie))
         // Correspondents
         .route("/api/correspondents", get(handlers::correspondents::list))
         .route("/api/correspondents", post(handlers::correspondents::create))
@@ -106,6 +118,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/rechnungen/:id/anhaenge", get(handlers::anhaenge::list))
         .route("/api/rechnungen/:id/anhaenge/:aid", get(handlers::anhaenge::serve))
         .route("/api/rechnungen/:id/anhaenge/:aid", delete(handlers::anhaenge::delete))
+        // Aktivitätslog
+        .route("/api/aktivitaet", get(handlers::aktivitaet::list_all))
+        .route("/api/rechnungen/:id/aktivitaet", get(handlers::aktivitaet::list))
         // Dashboard
         .route("/api/dashboard", get(handlers::dashboard::get))
         // Einstellungen
@@ -115,6 +130,30 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/einstellungen/gdrive-test", post(handlers::einstellungen::gdrive_test))
         // Export
         .route("/api/export", post(handlers::export::run))
+        // Beihilfe-Anträge
+        .route("/api/beihilfe-antraege", get(handlers::beihilfe_antraege::list))
+        .route("/api/beihilfe-antraege", post(handlers::beihilfe_antraege::create))
+        .route("/api/beihilfe-antraege/:id", get(handlers::beihilfe_antraege::get))
+        .route("/api/beihilfe-antraege/:id", patch(handlers::beihilfe_antraege::update))
+        .route("/api/beihilfe-antraege/:id", delete(handlers::beihilfe_antraege::delete))
+        .route("/api/beihilfe-antraege/:id/status", patch(handlers::beihilfe_antraege::set_status))
+        .route("/api/beihilfe-antraege/:id/rechnungen", post(handlers::beihilfe_antraege::add_rechnung))
+        .route("/api/beihilfe-antraege/:id/rechnungen", get(handlers::beihilfe_antraege::list_rechnungen))
+        .route("/api/beihilfe-antraege/:id/rechnungen/:rid", delete(handlers::beihilfe_antraege::remove_rechnung))
+        // Beihilfe-Bescheide
+        .route("/api/beihilfe-antraege/:id/bescheide", get(handlers::beihilfe_bescheide::list))
+        .route("/api/beihilfe-antraege/:id/bescheide", post(handlers::beihilfe_bescheide::create))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid", patch(handlers::beihilfe_bescheide::update))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid", delete(handlers::beihilfe_bescheide::delete))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/positionen", get(handlers::beihilfe_bescheide::list_positionen))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/positionen", post(handlers::beihilfe_bescheide::create_position))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/positionen/:pid", patch(handlers::beihilfe_bescheide::update_position))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/positionen/:pid", delete(handlers::beihilfe_bescheide::delete_position))
+        // Bescheid-Anhänge
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge", post(handlers::beihilfe_bescheide::upload_anhang))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge", get(handlers::beihilfe_bescheide::list_anhaenge))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid", get(handlers::beihilfe_bescheide::serve_anhang))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid", delete(handlers::beihilfe_bescheide::delete_anhang))
         .layer(Extension(JwtSecret(cfg.jwt_secret.clone())))
         .layer(cors)
         .with_state(state);

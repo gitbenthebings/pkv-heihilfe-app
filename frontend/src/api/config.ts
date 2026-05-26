@@ -2,6 +2,8 @@ export interface AppConfig {
   multipage_scan: boolean
   paperless_ngx_url?: string
   gdrive_configured?: boolean
+  n8n_webhook_url?: string
+  n8n_rechnung_webhook_url?: string
 }
 
 let cached: AppConfig | null = null

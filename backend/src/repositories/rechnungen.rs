@@ -18,28 +18,44 @@ pub async fn list(
     mandant_id: &str,
     person_id: Option<&str>,
     include_archiviert: bool,
+    jahr: Option<i32>,
 ) -> Result<Vec<Rechnung>, AppError> {
     let archiv_clause = if include_archiviert {
         "archiviert_am IS NOT NULL"
     } else {
         "archiviert_am IS NULL"
     };
+    let jahr_clause = if jahr.is_some() { " AND strftime('%Y', datum) = ?" } else { "" };
 
-    let rechnungen = if let Some(pid) = person_id {
-        sqlx::query_as::<_, Rechnung>(&format!(
-            "{SELECT} WHERE mandant_id = ? AND person_id = ? AND {archiv_clause} ORDER BY datum DESC"
-        ))
-        .bind(mandant_id)
-        .bind(pid)
-        .fetch_all(db)
-        .await?
-    } else {
-        sqlx::query_as::<_, Rechnung>(&format!(
-            "{SELECT} WHERE mandant_id = ? AND {archiv_clause} ORDER BY datum DESC"
-        ))
-        .bind(mandant_id)
-        .fetch_all(db)
-        .await?
+    let rechnungen = match (person_id, jahr) {
+        (Some(pid), Some(j)) => {
+            sqlx::query_as::<_, Rechnung>(&format!(
+                "{SELECT} WHERE mandant_id = ? AND person_id = ? AND {archiv_clause}{jahr_clause} ORDER BY datum DESC"
+            ))
+            .bind(mandant_id).bind(pid).bind(j.to_string())
+            .fetch_all(db).await?
+        }
+        (Some(pid), None) => {
+            sqlx::query_as::<_, Rechnung>(&format!(
+                "{SELECT} WHERE mandant_id = ? AND person_id = ? AND {archiv_clause} ORDER BY datum DESC"
+            ))
+            .bind(mandant_id).bind(pid)
+            .fetch_all(db).await?
+        }
+        (None, Some(j)) => {
+            sqlx::query_as::<_, Rechnung>(&format!(
+                "{SELECT} WHERE mandant_id = ? AND {archiv_clause}{jahr_clause} ORDER BY datum DESC"
+            ))
+            .bind(mandant_id).bind(j.to_string())
+            .fetch_all(db).await?
+        }
+        (None, None) => {
+            sqlx::query_as::<_, Rechnung>(&format!(
+                "{SELECT} WHERE mandant_id = ? AND {archiv_clause} ORDER BY datum DESC"
+            ))
+            .bind(mandant_id)
+            .fetch_all(db).await?
+        }
     };
     Ok(rechnungen)
 }

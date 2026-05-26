@@ -11,7 +11,7 @@ use crate::{
     errors::AppError,
     models::{CreateRechnung, UpdateRechnung, BulkActionRequest, BulkAction, RechnungMitStatus},
     repositories::{self, personen::list_by_mandant},
-    services::{paperless, rechnungen::mit_status},
+    services::{aktivitaet, paperless, rechnungen::{mit_status, find_satz_fuer_datum}},
     AppState,
 };
 
@@ -20,6 +20,8 @@ pub struct RechnungenFilter {
     pub person_id: Option<String>,
     /// true = nur archivierte; false/absent = nur aktive
     pub archiviert: Option<bool>,
+    /// Nur Rechnungen aus diesem Kalenderjahr (YYYY)
+    pub jahr: Option<i32>,
 }
 
 pub async fn list(
@@ -29,6 +31,7 @@ pub async fn list(
 ) -> Result<Json<Vec<RechnungMitStatus>>, AppError> {
     let personen = list_by_mandant(&state.db, &auth.mandant_id).await?;
     let personen_map: HashMap<String, _> = personen.into_iter().map(|p| (p.id.clone(), p)).collect();
+    let satz_historie = repositories::personen_satz_historie::list_for_mandant(&state.db, &auth.mandant_id).await?;
 
     let include_archiviert = filter.archiviert.unwrap_or(false);
     let rechnungen = repositories::rechnungen::list(
@@ -36,6 +39,7 @@ pub async fn list(
         &auth.mandant_id,
         filter.person_id.as_deref(),
         include_archiviert,
+        filter.jahr,
     )
     .await?;
 
@@ -43,7 +47,9 @@ pub async fn list(
         .into_iter()
         .filter_map(|r| {
             let person = personen_map.get(&r.person_id)?;
-            Some(mit_status(r, person))
+            let (bh_satz, pkv_satz) = find_satz_fuer_datum(&satz_historie, &r.person_id, &r.datum)
+                .unwrap_or((person.beihilfe_satz, person.pkv_satz));
+            Some(mit_status(r, person, bh_satz, pkv_satz))
         })
         .collect();
 
@@ -69,7 +75,11 @@ pub async fn create(
         .ok_or(AppError::NotFound)?;
 
     let rechnung = repositories::rechnungen::create(&state.db, &auth.mandant_id, &body).await?;
-    let result = mit_status(rechnung, person);
+    aktivitaet::log_erstellt(&state.db, &auth.mandant_id, &rechnung.id, &auth.benutzer_id).await.ok();
+    let satz_historie = repositories::personen_satz_historie::list_for_mandant(&state.db, &auth.mandant_id).await?;
+    let (bh_satz, pkv_satz) = find_satz_fuer_datum(&satz_historie, &rechnung.person_id, &rechnung.datum)
+        .unwrap_or((person.beihilfe_satz, person.pkv_satz));
+    let result = mit_status(rechnung, person, bh_satz, pkv_satz);
 
     Ok((StatusCode::CREATED, Json(result)))
 }
@@ -83,9 +93,20 @@ pub async fn update(
     let personen = list_by_mandant(&state.db, &auth.mandant_id).await?;
     let personen_map: HashMap<String, _> = personen.into_iter().map(|p| (p.id.clone(), p)).collect();
 
+    // Vorherigen Stand für Diff laden
+    let vorher = repositories::rechnungen::get(&state.db, &id, &auth.mandant_id).await?;
+
     let rechnung = repositories::rechnungen::update(&state.db, &id, &auth.mandant_id, &body).await?;
+
+    if let Some(vorher) = vorher {
+        aktivitaet::log_aenderung(&state.db, &auth.mandant_id, &id, &auth.benutzer_id, &vorher, &body).await.ok();
+    }
+
     let person = personen_map.get(&rechnung.person_id).ok_or(AppError::NotFound)?;
-    let result = mit_status(rechnung, person);
+    let satz_historie = repositories::personen_satz_historie::list_for_mandant(&state.db, &auth.mandant_id).await?;
+    let (bh_satz, pkv_satz) = find_satz_fuer_datum(&satz_historie, &rechnung.person_id, &rechnung.datum)
+        .unwrap_or((person.beihilfe_satz, person.pkv_satz));
+    let result = mit_status(rechnung, person, bh_satz, pkv_satz);
 
     Ok(Json(result))
 }

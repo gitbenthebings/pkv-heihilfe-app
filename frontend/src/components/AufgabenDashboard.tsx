@@ -1,5 +1,7 @@
 import { useState, useMemo, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useJahr } from '../context/JahrContext'
 import {
   CreditCard, FileText, Clock, Scale, CheckCircle2,
   CheckCircle, Send, Archive, ChevronDown, ChevronRight, RotateCcw, PauseCircle,
@@ -9,7 +11,7 @@ import { getAnhaenge } from '../api/anhaenge'
 import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
 import {
-  groupIntoBuckets,
+  groupIntoBuckets, getZahlungszielStatus,
   type BucketKey, type BefuellterBucket,
 } from '../utils/aufgabenBuckets'
 import { applyAufgabenFilter, defaultAufgabenFilter, type AufgabenFilter } from '../utils/aufgabenFilter'
@@ -36,31 +38,27 @@ function formatDatum(s: string) {
 
 // ─── Styling ──────────────────────────────────────────────────────────────────
 
+interface BucketTheme {
+  bg: string; border: string; header: string
+}
+
+const BUCKET_THEME: Record<BucketKey, BucketTheme> = {
+  zu_bezahlen:        { bg: 'var(--sec-pay-bg)',      border: 'var(--sec-pay-border)',      header: 'var(--sec-pay-header)' },
+  beihilfe_einreichen:{ bg: 'var(--sec-bh-bg)',       border: 'var(--sec-bh-border)',       header: 'var(--sec-bh-header)' },
+  warten_beihilfe:    { bg: 'var(--sec-wait-bg)',     border: 'var(--sec-wait-border)',     header: 'var(--sec-wait-header)' },
+  pkv_einreichen:     { bg: 'var(--sec-pkv-bg)',      border: 'var(--sec-pkv-border)',      header: 'var(--sec-pkv-header)' },
+  warten_pkv:         { bg: 'var(--sec-pkv-wait-bg)', border: 'var(--sec-pkv-wait-border)', header: 'var(--sec-pkv-wait-header)' },
+  bereit_archivieren: { bg: 'var(--sec-done-bg)',     border: 'var(--sec-done-border)',     header: 'var(--sec-done-header)' },
+}
+
+// kept for legacy usage in BucketIcon
 const BUCKET_COLORS: Record<BucketKey, string> = {
   zu_bezahlen:        'text-amber-600 dark:text-amber-400',
   beihilfe_einreichen:'text-blue-600 dark:text-blue-400',
-  warten_beihilfe:    'text-gray-500 dark:text-gray-400',
-  pkv_einreichen:     'text-violet-600 dark:text-violet-400',
+  warten_beihilfe:    'text-purple-600 dark:text-purple-400',
+  pkv_einreichen:     'text-teal-600 dark:text-teal-400',
   warten_pkv:         'text-gray-500 dark:text-gray-400',
   bereit_archivieren: 'text-green-600 dark:text-green-400',
-}
-
-const BUCKET_BG: Record<BucketKey, string> = {
-  zu_bezahlen:        'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700',
-  beihilfe_einreichen:'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700',
-  warten_beihilfe:    'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600',
-  pkv_einreichen:     'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700',
-  warten_pkv:         'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600',
-  bereit_archivieren: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700',
-}
-
-const BUCKET_CHIP: Record<BucketKey, string> = {
-  zu_bezahlen:        'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
-  beihilfe_einreichen:'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
-  warten_beihilfe:    'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
-  pkv_einreichen:     'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
-  warten_pkv:         'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
-  bereit_archivieren: 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
 }
 
 function BucketIcon({ k, cls }: { k: BucketKey; cls: string }) {
@@ -86,14 +84,13 @@ interface QuickActionProps {
 }
 
 function QuickAction({ label, icon, onClick, loading, variant = 'primary' }: QuickActionProps) {
-  const base = 'inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded min-h-[36px] disabled:opacity-50 transition-colors'
-  const cls = variant === 'primary'
-    ? `${base} bg-blue-600 text-white hover:bg-blue-700`
-    : `${base} bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600`
+  const style = variant === 'primary'
+    ? { background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const, display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 32, opacity: loading ? 0.6 : 1 }
+    : { background: 'transparent', color: 'var(--primary)', border: '1.5px solid var(--primary)', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const, display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 32, opacity: loading ? 0.6 : 1 }
   return (
-    <button className={cls} onClick={onClick} disabled={loading}>
+    <button style={style} onClick={onClick} disabled={loading}>
       {loading ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : icon}
-      <span className="whitespace-nowrap">{label}</span>
+      <span>{label}</span>
     </button>
   )
 }
@@ -129,24 +126,24 @@ function ErstattungInput({ rechnungId, feld, erwartet, loading, onSave }: Erstat
   return (
     <div className="flex items-center gap-1 shrink-0">
       {erwartet !== null && (
-        <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums whitespace-nowrap hidden sm:inline">
+        <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }} className="hidden sm:inline">
           erw. {formatEuro(erwartet)}
         </span>
       )}
-      <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded overflow-hidden min-h-[36px]">
+      <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
         <input
           type="text" inputMode="decimal" placeholder="0,00"
           value={wert} onChange={e => setWert(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSave()}
           disabled={isLoading}
-          className="w-20 px-2 py-1 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none disabled:opacity-50"
+          style={{ width: 72, padding: '5px 8px', fontSize: 12, background: 'var(--bg)', color: 'var(--text)', border: 'none', outline: 'none', opacity: isLoading ? 0.5 : 1 }}
         />
-        <span className="px-1 text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700 border-l border-gray-300 dark:border-gray-600">€</span>
+        <span style={{ padding: '0 6px', fontSize: 11, color: 'var(--text-muted)', background: 'var(--surface-alt)', borderLeft: '1px solid var(--border)' }}>€</span>
       </div>
       <button
         onClick={handleSave}
         disabled={isLoading || wert.trim() === ''}
-        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors min-h-[36px] whitespace-nowrap"
+        style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4, opacity: isLoading || wert.trim() === '' ? 0.5 : 1 }}
       >
         {isLoading
           ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
@@ -171,9 +168,10 @@ interface RechnungZeileProps {
   personenById: Map<string, Person>
   action?: ReactNode
   dimmed?: boolean
+  onOpenSlider?: (id: string) => void
 }
 
-function RechnungZeile({ r, correspondentsById, personenById, action, dimmed }: RechnungZeileProps) {
+function RechnungZeile({ r, correspondentsById, personenById, action, dimmed, onOpenSlider }: RechnungZeileProps) {
   const arzt = correspondentsById.get(r.leistungserbringer_id)?.name ?? r.leistungserbringer_id
   const person = personenById.get(r.person_id)?.name ?? ''
   const ref = formatRef(r.referenz_nr)
@@ -183,31 +181,55 @@ function RechnungZeile({ r, correspondentsById, personenById, action, dimmed }: 
     queryFn: () => getAnhaenge(r.id),
   })
 
+  const todayStr = today()
+  const zahlungszielStatus = getZahlungszielStatus(r, todayStr)
+
   return (
-    <div className={`py-2 border-b border-gray-100 dark:border-gray-700 last:border-0 ${dimmed ? 'opacity-50' : ''}`}>
+    <div style={{ padding: '6px 0', borderBottom: '1px solid var(--row-border)', opacity: dimmed ? 0.5 : 1 }} className="last:border-0">
       <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-sm">
-            {ref && <span className="font-mono text-xs text-gray-400 dark:text-gray-500 shrink-0">{ref}</span>}
-            <span className="text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap shrink-0">{formatDatum(r.datum)}</span>
-            <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{arzt}</span>
-            {person && <span className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:inline">{person}</span>}
+          <div className="flex items-center gap-2">
+            {ref && <span style={{ fontSize: 10, color: 'var(--text-subtle)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{ref}</span>}
+            <span style={{ fontSize: 10, color: 'var(--text-subtle)', whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDatum(r.datum)}</span>
+            {zahlungszielStatus && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, whiteSpace: 'nowrap', flexShrink: 0,
+                background: zahlungszielStatus === 'ueberfaellig' ? 'var(--rose-dim)' : 'var(--amber-dim)',
+                color: zahlungszielStatus === 'ueberfaellig' ? 'var(--rose)' : 'var(--amber)',
+              }}>
+                {zahlungszielStatus === 'ueberfaellig' ? 'Überfällig' : `Fällig ${formatDatum(r.zahlungsziel!)}`}
+              </span>
+            )}
+            <button
+              onClick={() => onOpenSlider?.(r.id)}
+              style={{ fontWeight: 600, fontSize: 12, color: onOpenSlider ? 'var(--primary)' : 'var(--text)', background: 'none', border: 'none', cursor: onOpenSlider ? 'pointer' : 'default', padding: 0, textAlign: 'left' }}
+              className="truncate"
+            >
+              {arzt}
+            </button>
+            {person && <span style={{ fontSize: 11, color: 'var(--text-muted)' }} className="truncate hidden sm:inline">{person}</span>}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-gray-400 dark:text-gray-500">{TYP_LABEL[r.typ] ?? r.typ}</span>
-            {person && <span className="text-xs text-gray-500 dark:text-gray-400 sm:hidden truncate">{person}</span>}
-            {r.notiz && <span className="text-xs text-gray-400 dark:text-gray-500 truncate italic">{r.notiz}</span>}
+            <span style={{ fontSize: 10, color: 'var(--text-subtle)', background: 'var(--surface-hi)', padding: '1px 6px', borderRadius: 4 }}>{TYP_LABEL[r.typ] ?? r.typ}</span>
+            {person && <span style={{ fontSize: 11, color: 'var(--text-muted)' }} className="sm:hidden truncate">{person}</span>}
+            {r.notiz && <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontStyle: 'italic' }} className="truncate">{r.notiz}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 justify-between sm:justify-end">
           <button
             onClick={() => setAnhaengeOffen(o => !o)}
-            className={`inline-flex items-center gap-1 px-1.5 py-1 text-xs border rounded transition-colors ${anhaengeOffen ? 'border-gray-400 bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : anhaenge.length > 0 ? 'border-blue-200 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30' : 'border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
             title="Anhänge"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+              padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
+              border: `1px solid ${anhaengeOffen ? 'var(--border-hi)' : 'var(--border)'}`,
+              background: anhaengeOffen ? 'var(--surface-hi)' : 'transparent',
+              color: anhaenge.length > 0 ? 'var(--primary)' : 'var(--text-subtle)',
+            }}
           >
-            📎{anhaenge.length > 0 && <span className="tabular-nums">{anhaenge.length}</span>}
+            📎{anhaenge.length > 0 && <span style={{ fontVariantNumeric: 'tabular-nums' }}>{anhaenge.length}</span>}
           </button>
-          <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
             {formatEuro(r.betrag)}
           </span>
           {action}
@@ -231,10 +253,11 @@ interface PkvEinreichenSektionProps {
   correspondentsById: Map<string, Correspondent>
   onUpdate: (id: string, patch: object) => Promise<void>
   loading: Set<string>
+  onOpenSlider?: (id: string) => void
 }
 
 function PkvEinreichenSektion({
-  aktive, zurueckgestellt, personenById, correspondentsById, onUpdate, loading,
+  aktive, zurueckgestellt, personenById, correspondentsById, onUpdate, loading, onOpenSlider,
 }: PkvEinreichenSektionProps) {
   const [showZurueck, setShowZurueck] = useState<Set<string>>(new Set())
   const [bulkLoading, setBulkLoading] = useState<Set<string>>(new Set())
@@ -270,12 +293,12 @@ function PkvEinreichenSektion({
         const showZ = showZurueck.has(personId)
 
         return (
-          <div key={personId} className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-gray-100 dark:bg-gray-700/50 flex items-center justify-between">
-              <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{personName}</span>
+          <div key={personId} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
+            <div style={{ padding: '6px 12px', background: 'var(--surface-alt)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{personName}</span>
               {aktiv.length > 1 && (
                 <button
-                  className="text-xs text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 disabled:opacity-50"
+                  style={{ fontSize: 11, color: 'var(--primary)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, opacity: bulkLoading.has(personId) ? 0.6 : 1 }}
                   onClick={() => bulkEinreichen(personId)}
                   disabled={bulkLoading.has(personId)}
                 >
@@ -291,6 +314,7 @@ function PkvEinreichenSektion({
                   r={r}
                   correspondentsById={correspondentsById}
                   personenById={personenById}
+                  onOpenSlider={onOpenSlider}
                   action={
                     <div className="flex items-center gap-1">
                       <QuickAction
@@ -314,7 +338,7 @@ function PkvEinreichenSektion({
             {zurueck.length > 0 && (
               <div className="px-3 pb-2">
                 <button
-                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center gap-1 py-1 mt-1"
+                  style={{ fontSize: 11, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, padding: '4px 0', marginTop: 4 }}
                   onClick={() => setShowZurueck(prev => {
                     const next = new Set(prev)
                     next.has(personId) ? next.delete(personId) : next.add(personId)
@@ -331,6 +355,7 @@ function PkvEinreichenSektion({
                     r={r}
                     correspondentsById={correspondentsById}
                     personenById={personenById}
+                    onOpenSlider={onOpenSlider}
                     dimmed
                     action={
                       <QuickAction
@@ -363,17 +388,19 @@ interface BucketSektionProps {
   loading: Set<string>
   collapsed: boolean
   onToggle: () => void
+  onOpenSlider?: (id: string) => void
 }
 
 function BucketSektion({
-  bucket, personenById, correspondentsById, onUpdate, onArchivieren, loading, collapsed, onToggle,
+  bucket, personenById, correspondentsById, onUpdate, onArchivieren, loading, collapsed, onToggle, onOpenSlider,
 }: BucketSektionProps) {
+  const navigate = useNavigate()
   const total = bucket.aktive.length + bucket.zurueckgestellt.length
   if (total === 0) return null
 
   const { definition: def } = bucket
   const colorCls = BUCKET_COLORS[def.key]
-  const bgCls = BUCKET_BG[def.key]
+  const theme = BUCKET_THEME[def.key]
 
   function getAction(r: Rechnung): ReactNode {
     switch (def.key) {
@@ -388,22 +415,21 @@ function BucketSektion({
         )
       case 'beihilfe_einreichen':
         return (
-          <QuickAction
-            label="Eingereicht"
-            icon={<Send className="w-3 h-3" />}
-            loading={loading.has(r.id)}
-            onClick={() => onUpdate(r.id, { beihilfe_eingereicht_am: today() })}
-          />
+          <button
+            onClick={() => navigate('/beihilfe-antraege')}
+            style={{ background: 'transparent', color: 'var(--primary)', border: '1.5px solid var(--primary)', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const, display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 32 }}
+          >
+            → Zu Anträgen
+          </button>
         )
       case 'warten_beihilfe':
         return (
-          <ErstattungInput
-            rechnungId={r.id}
-            feld="beihilfe_erstattet_betrag"
-            erwartet={r.beihilfe_anteil_erwartet}
-            loading={loading.has(r.id)}
-            onSave={onUpdate}
-          />
+          <button
+            onClick={() => navigate('/beihilfe-antraege')}
+            style={{ background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' as const, display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 32 }}
+          >
+            Bescheid erfassen
+          </button>
         )
       case 'warten_pkv':
         return (
@@ -430,29 +456,27 @@ function BucketSektion({
   }
 
   return (
-    <div id={`bucket-${def.key}`} className={`rounded-lg border ${bgCls} overflow-hidden`}>
+    <div id={`bucket-${def.key}`} style={{ background: theme.bg, border: `1px solid ${theme.border}`, borderRadius: 8, overflow: 'hidden' }}>
       <button
         className="w-full flex items-center gap-2 px-3 py-3 text-left min-h-[48px]"
+        style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
         onClick={onToggle}
       >
         <BucketIcon k={def.key} cls={colorCls} />
-        <span className={`font-semibold text-sm flex-1 ${colorCls}`}>{def.titel}</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-          {total} Rechnung{total !== 1 ? 'en' : ''}
-        </span>
-        <span className="text-xs font-medium text-gray-700 dark:text-gray-300 ml-1 whitespace-nowrap">
-          {formatEuro(bucket.gesamtbetrag)}
+        <span style={{ fontWeight: 700, fontSize: 12, flex: 1, color: theme.header }}>{def.titel}</span>
+        <span style={{ fontSize: 11, color: theme.header, opacity: 0.6, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {total} · {formatEuro(bucket.gesamtbetrag)}
         </span>
         {collapsed
-          ? <ChevronRight className="w-4 h-4 text-gray-400 ml-1 flex-shrink-0" />
-          : <ChevronDown className="w-4 h-4 text-gray-400 ml-1 flex-shrink-0" />
+          ? <ChevronRight className="w-4 h-4 ml-1 flex-shrink-0" style={{ color: theme.header, opacity: 0.5 }} />
+          : <ChevronDown className="w-4 h-4 ml-1 flex-shrink-0" style={{ color: theme.header, opacity: 0.5 }} />
         }
       </button>
 
       {!collapsed && (
         <div className="px-3 pb-3">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{def.beschreibung}</p>
-          <div className="border-t border-gray-200 dark:border-gray-600 pt-1">
+          <p style={{ fontSize: 11, color: theme.header, opacity: 0.6, marginBottom: 8 }}>{def.beschreibung}</p>
+          <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 4 }}>
             {def.key === 'pkv_einreichen' ? (
               <PkvEinreichenSektion
                 aktive={bucket.aktive}
@@ -461,6 +485,7 @@ function BucketSektion({
                 correspondentsById={correspondentsById}
                 onUpdate={onUpdate}
                 loading={loading}
+                onOpenSlider={onOpenSlider}
               />
             ) : (
               bucket.aktive.map(r => (
@@ -469,6 +494,7 @@ function BucketSektion({
                   r={r}
                   correspondentsById={correspondentsById}
                   personenById={personenById}
+                  onOpenSlider={onOpenSlider}
                   action={getAction(r)}
                 />
               ))
@@ -482,15 +508,20 @@ function BucketSektion({
 
 // ─── Hauptkomponente ───────────────────────────────────────────────────────────
 
-export default function AufgabenDashboard() {
+interface AufgabenDashboardProps {
+  onOpenSlider?: (id: string) => void
+}
+
+export default function AufgabenDashboard({ onOpenSlider }: AufgabenDashboardProps) {
   const queryClient = useQueryClient()
+  const { jahr } = useJahr()
   const [loading, setLoading] = useState<Set<string>>(new Set())
   const [collapsed, setCollapsed] = useState<Set<BucketKey>>(new Set())
   const [filter, setFilter] = useState<AufgabenFilter>(defaultAufgabenFilter)
 
   const { data: rechnungen = [], isLoading: rLoading } = useQuery({
-    queryKey: ['rechnungen'],
-    queryFn: () => getRechnungen(),
+    queryKey: ['rechnungen', undefined, false, jahr],
+    queryFn: () => getRechnungen(undefined, false, jahr),
     refetchInterval: 60_000,
   })
 
@@ -515,8 +546,8 @@ export default function AufgabenDashboard() {
   )
 
   const gefilterteRechnungen = useMemo(
-    () => applyAufgabenFilter(rechnungen, filter),
-    [rechnungen, filter],
+    () => applyAufgabenFilter(rechnungen, filter, jahr),
+    [rechnungen, filter, jahr],
   )
 
   const buckets = useMemo(
@@ -525,8 +556,8 @@ export default function AufgabenDashboard() {
   )
 
   const kennzahlen = useMemo(
-    () => berechneFinanzKennzahlen(gefilterteRechnungen, personenById),
-    [gefilterteRechnungen, personenById],
+    () => berechneFinanzKennzahlen(gefilterteRechnungen, personenById, jahr),
+    [gefilterteRechnungen, personenById, jahr],
   )
 
   async function handleUpdate(id: string, patch: object) {
@@ -560,7 +591,7 @@ export default function AufgabenDashboard() {
   }
 
   if (rLoading || pLoading) {
-    return <p className="text-gray-500 dark:text-gray-400 text-sm">Lade Aufgaben...</p>
+    return <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Lade Aufgaben...</p>
   }
 
   const sichtbareBuckets = buckets.filter(b => (b.aktive.length + b.zurueckgestellt.length) > 0)
@@ -572,15 +603,15 @@ export default function AufgabenDashboard() {
     <div className="space-y-3">
       <AufgabenFilterleiste filter={filter} onChange={setFilter} personen={personen} />
 
-      <AufgabenFinanzStatus kennzahlen={kennzahlen} filter={filter} />
+      <AufgabenFinanzStatus kennzahlen={kennzahlen} />
 
       {/* Zusammenfassungs-Chips */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2.5">
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px' }}>
         {sichtbareBuckets.length === 0 ? (
-          <p className="text-sm text-gray-600 dark:text-gray-300">Alles erledigt 🎉</p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Alles erledigt 🎉</p>
         ) : (
           <>
-            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
               {offeneAufgaben > 0
                 ? `${offeneAufgaben} offene Aufgabe${offeneAufgaben !== 1 ? 'n' : ''}`
                 : 'Keine offenen Aufgaben'}
@@ -589,6 +620,7 @@ export default function AufgabenDashboard() {
               {sichtbareBuckets.map(b => {
                 const count = b.aktive.length + b.zurueckgestellt.length
                 const isWarte = b.definition.istWartebucket
+                const t = BUCKET_THEME[b.definition.key]
                 return (
                   <button
                     key={b.definition.key}
@@ -596,9 +628,9 @@ export default function AufgabenDashboard() {
                       setCollapsed(prev => { const next = new Set(prev); next.delete(b.definition.key); return next })
                       setTimeout(() => document.getElementById(`bucket-${b.definition.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
                     }}
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${BUCKET_CHIP[b.definition.key]} ${isWarte ? 'italic' : ''}`}
+                    style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, border: `1px solid ${t.border}`, background: t.bg, color: t.header, cursor: 'pointer', fontStyle: isWarte ? 'italic' : 'normal', display: 'inline-flex', alignItems: 'center', gap: 3 }}
                   >
-                    {isWarte && <Clock className="w-3 h-3 inline mr-0.5" />}
+                    {isWarte && <Clock className="w-3 h-3" />}
                     {count} {b.definition.titel}
                   </button>
                 )
@@ -620,6 +652,7 @@ export default function AufgabenDashboard() {
           loading={loading}
           collapsed={collapsed.has(b.definition.key)}
           onToggle={() => toggleCollapse(b.definition.key)}
+          onOpenSlider={onOpenSlider}
         />
       ))}
     </div>

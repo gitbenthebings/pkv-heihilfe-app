@@ -11,6 +11,8 @@ pub struct EinstellungenResponse {
     /// Nur ob konfiguriert – der Private Key wird nie zurückgegeben
     pub gdrive_service_account_configured: bool,
     pub gdrive_folder_id: Option<String>,
+    pub n8n_webhook_url: Option<String>,
+    pub n8n_rechnung_webhook_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -20,6 +22,8 @@ pub struct UpdateEinstellungen {
     pub mandant_name: Option<String>,
     pub gdrive_service_account_json: Option<String>,
     pub gdrive_folder_id: Option<String>,
+    pub n8n_webhook_url: Option<String>,
+    pub n8n_rechnung_webhook_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -57,6 +61,8 @@ pub async fn get(
         mandant_name: map.get("mandant_name").cloned(),
         gdrive_service_account_configured: map.contains_key("gdrive_service_account_json"),
         gdrive_folder_id: map.get("gdrive_folder_id").cloned(),
+        n8n_webhook_url: map.get("n8n_webhook_url").cloned(),
+        n8n_rechnung_webhook_url: map.get("n8n_rechnung_webhook_url").cloned(),
     }))
 }
 
@@ -85,6 +91,12 @@ pub async fn update(
     }
     if let Some(v) = &body.gdrive_folder_id {
         repositories::einstellungen::upsert(&state.db, "gdrive_folder_id", v).await?;
+    }
+    if let Some(v) = &body.n8n_webhook_url {
+        repositories::einstellungen::upsert(&state.db, "n8n_webhook_url", v).await?;
+    }
+    if let Some(v) = &body.n8n_rechnung_webhook_url {
+        repositories::einstellungen::upsert(&state.db, "n8n_rechnung_webhook_url", v).await?;
     }
     Ok(Json(serde_json::json!({ "ok": true })))
 }

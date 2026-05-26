@@ -33,14 +33,14 @@ export const BUCKET_DEFINITIONEN: BucketDefinition[] = [
   },
   {
     key: 'beihilfe_einreichen',
-    titel: 'Beihilfe einreichen',
-    beschreibung: 'Noch nicht bei der Beihilfestelle eingereicht.',
+    titel: 'In Antrag aufnehmen',
+    beschreibung: 'Noch kein Beihilfe-Antrag. Diese Rechnungen in einem Antrag einreichen.',
     istWartebucket: false,
   },
   {
     key: 'warten_beihilfe',
     titel: 'Warten auf Beihilfe-Bescheid',
-    beschreibung: 'Eingereicht – warte auf Bescheid der Beihilfestelle.',
+    beschreibung: 'Antrag versendet – warte auf Bescheid. Bescheid im Antrag erfassen.',
     istWartebucket: true,
   },
   {
@@ -98,6 +98,18 @@ export function getBucketsForRechnung(
   if (keys.length === 0) keys.push('bereit_archivieren')
 
   return keys
+}
+
+export function getZahlungszielStatus(
+  r: Rechnung,
+  todayStr: string,
+): 'ueberfaellig' | 'bald_faellig' | null {
+  if (r.bezahlt_am !== null || r.zahlungsziel === null) return null
+  if (r.zahlungsziel < todayStr) return 'ueberfaellig'
+  const diffDays = Math.ceil(
+    (new Date(r.zahlungsziel).getTime() - new Date(todayStr).getTime()) / 86_400_000,
+  )
+  return diffDays <= 7 ? 'bald_faellig' : null
 }
 
 export function groupIntoBuckets(

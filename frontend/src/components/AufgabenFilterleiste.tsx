@@ -34,47 +34,48 @@ function MultiSelectDropdown({
     : options.filter(o => selected.includes(o.id)).map(o => o.label).join(', ')
   const truncated = displayLabel.length > 18 ? displayLabel.slice(0, 16) + '…' : displayLabel
 
+  const active = selected.length > 0
+
   return (
     <div className="relative shrink-0" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        className={`flex items-center gap-1 px-2 py-1.5 sm:py-1 text-xs rounded border transition-colors min-h-[36px] ${
-          selected.length > 0
-            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
-        }`}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          padding: '5px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+          border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+          background: active ? 'var(--primary-dim)' : 'var(--surface)',
+          color: active ? 'var(--primary)' : 'var(--text-muted)',
+          minHeight: 32,
+        }}
       >
         <span>{truncated}</span>
-        {selected.length > 0 && (
-          <span className="bg-blue-600 text-white text-[10px] rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none flex-shrink-0">
+        {active && (
+          <span style={{ background: 'var(--primary)', color: '#fff', fontSize: 9, borderRadius: '50%', width: 14, height: 14, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             {selected.length}
           </span>
         )}
-        <svg className="w-2.5 h-2.5 opacity-60 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ opacity: 0.6, flexShrink: 0 }}>
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-[min(95vw,13rem)] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 py-1">
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 'min(95vw, 13rem)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', zIndex: 20, padding: '4px 0' }}>
           <div className="max-h-48 overflow-y-auto">
             {options.map(o => (
-              <label key={o.id} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer min-h-[44px]">
-                <input
-                  type="checkbox"
-                  checked={selected.includes(o.id)}
-                  onChange={() => toggle(o.id)}
-                  className="rounded border-gray-300 dark:border-gray-600 text-blue-600"
-                />
-                <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{o.label}</span>
+              <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', minHeight: 40 }}
+                className="hover-surface-hi">
+                <input type="checkbox" checked={selected.includes(o.id)} onChange={() => toggle(o.id)} />
+                <span style={{ fontSize: 12, color: 'var(--text)' }} className="truncate">{o.label}</span>
               </label>
             ))}
           </div>
           {selected.length > 0 && (
-            <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-1">
+            <div style={{ borderTop: '1px solid var(--border)', padding: '4px 12px' }}>
               <button
                 onClick={() => { onChange([]); setOpen(false) }}
-                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
               >
                 Alle entfernen
               </button>
@@ -101,17 +102,16 @@ interface Props {
 }
 
 export default function AufgabenFilterleiste({ filter, onChange, personen }: Props) {
-  const currentYear = new Date().getFullYear()
-  const jahreOptionen = Array.from({ length: 5 }, (_, i) => currentYear - 3 + i)
-
   const personenOptions = personen.map(p => ({ id: p.id, label: p.name }))
 
   function set<K extends keyof AufgabenFilter>(key: K, value: AufgabenFilter[K]) {
     onChange({ ...filter, [key]: value })
   }
 
+  const chipStyle = { padding: '5px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', minHeight: 32 }
+
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5">
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px' }}>
       <div className="flex flex-wrap items-center gap-1.5">
 
         {/* Person */}
@@ -121,17 +121,6 @@ export default function AufgabenFilterleiste({ filter, onChange, personen }: Pro
           selected={filter.personIds}
           onChange={ids => set('personIds', ids)}
         />
-
-        {/* Jahr */}
-        <select
-          value={filter.jahr}
-          onChange={e => set('jahr', Number(e.target.value))}
-          className="px-2 py-1.5 sm:py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[36px]"
-        >
-          {jahreOptionen.map(j => (
-            <option key={j} value={j}>{j}</option>
-          ))}
-        </select>
 
         {/* Typ */}
         <MultiSelectDropdown
@@ -143,36 +132,32 @@ export default function AufgabenFilterleiste({ filter, onChange, personen }: Pro
 
         {/* Zeitraum */}
         <div className="flex flex-wrap items-center gap-1">
-          <span className="text-xs text-gray-500 dark:text-gray-400">Von</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Von</span>
           <div className="relative flex items-center">
             <input
               type="date"
               value={filter.datumVon ?? ''}
               onChange={e => set('datumVon', e.target.value || null)}
-              className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1.5 sm:py-1 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[36px]"
+              style={{ ...chipStyle, paddingRight: filter.datumVon ? 24 : undefined }}
             />
             {filter.datumVon && (
-              <button
-                onClick={() => set('datumVon', null)}
-                className="absolute right-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              >
+              <button onClick={() => set('datumVon', null)}
+                style={{ position: 'absolute', right: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}>
                 <X className="w-3 h-3" />
               </button>
             )}
           </div>
-          <span className="text-xs text-gray-500 dark:text-gray-400">Bis</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Bis</span>
           <div className="relative flex items-center">
             <input
               type="date"
               value={filter.datumBis ?? ''}
               onChange={e => set('datumBis', e.target.value || null)}
-              className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1.5 sm:py-1 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[36px]"
+              style={{ ...chipStyle, paddingRight: filter.datumBis ? 24 : undefined }}
             />
             {filter.datumBis && (
-              <button
-                onClick={() => set('datumBis', null)}
-                className="absolute right-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              >
+              <button onClick={() => set('datumBis', null)}
+                style={{ position: 'absolute', right: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'flex' }}>
                 <X className="w-3 h-3" />
               </button>
             )}
@@ -183,7 +168,7 @@ export default function AufgabenFilterleiste({ filter, onChange, personen }: Pro
         {!isDefaultFilter(filter) && (
           <button
             onClick={() => onChange(defaultAufgabenFilter)}
-            className="flex items-center gap-1 px-2 py-1.5 sm:py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 min-h-[36px]"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...chipStyle }}
           >
             <X className="w-3 h-3" />
             Zurücksetzen

@@ -1,10 +1,11 @@
 import { api } from './client'
 import type { Rechnung, CreateRechnung, UpdateRechnung, BulkAction } from '../types'
 
-export const getRechnungen = (personId?: string, archiviert = false) => {
+export const getRechnungen = (personId?: string, archiviert = false, jahr?: number) => {
   const params = new URLSearchParams()
   if (personId) params.set('person_id', personId)
   if (archiviert) params.set('archiviert', 'true')
+  if (jahr != null) params.set('jahr', String(jahr))
   const qs = params.toString() ? `?${params}` : ''
   return api.get<Rechnung[]>(`/rechnungen${qs}`)
 }

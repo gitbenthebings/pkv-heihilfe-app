@@ -1,5 +1,11 @@
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use crate::{auth::AuthUser, errors::AppError, models::{Beihilfestelle, CreateBeihilfestelle, UpdateBeihilfestelle}, repositories, AppState};
+use crate::{
+    auth::AuthUser,
+    errors::AppError,
+    models::{AddPersonToBeihilfestelle, Beihilfestelle, CreateBeihilfestelle, UpdateBeihilfestelle},
+    repositories,
+    AppState,
+};
 
 pub async fn list(
     State(state): State<AppState>,
@@ -43,4 +49,35 @@ pub async fn delete(
 ) -> Result<StatusCode, AppError> {
     repositories::beihilfestellen::delete(&state.db, &id, &auth.mandant_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn add_person(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(body): Json<AddPersonToBeihilfestelle>,
+) -> Result<Json<Beihilfestelle>, AppError> {
+    repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    repositories::personen::get(&state.db, &body.person_id, &auth.mandant_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    repositories::beihilfestellen::add_person(&state.db, &id, &body.person_id, &auth.mandant_id).await?;
+    let item = repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(item))
+}
+
+pub async fn remove_person(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((id, person_id)): Path<(String, String)>,
+) -> Result<Json<Beihilfestelle>, AppError> {
+    repositories::beihilfestellen::remove_person(&state.db, &id, &person_id, &auth.mandant_id).await?;
+    let item = repositories::beihilfestellen::get(&state.db, &id, &auth.mandant_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(item))
 }

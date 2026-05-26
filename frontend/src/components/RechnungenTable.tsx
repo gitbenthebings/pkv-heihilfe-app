@@ -1,7 +1,9 @@
-import React, { useState } from 'react'
-import type { Rechnung, Person, Correspondent, UpdateRechnung } from '../types'
+import React, { useState, useRef, useEffect } from 'react'
+import { Settings } from 'lucide-react'
+import type { Rechnung, Person, Correspondent } from '../types'
 import StatusBadge from './StatusBadge'
 import AnhangUpload from './AnhangUpload'
+import { getZahlungszielStatus } from '../utils/aufgabenBuckets'
 
 interface Props {
   rechnungen: Rechnung[]
@@ -10,34 +12,40 @@ interface Props {
   selectedIds: Set<string>
   onToggleSelect: (id: string) => void
   onToggleAll: () => void
-  onUpdate: (id: string, data: UpdateRechnung) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onArchivToggle: (id: string, archivieren: boolean) => Promise<void>
+  onOpenSlider?: (id: string) => void
   archivModus?: boolean
   paperlessNgxUrl?: string
 }
 
-function formatEuro(betrag: number) {
-  return betrag.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function formatEuro(v: number) {
+  return v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
+}
 function formatReferenz(nr: number | null) {
-  if (nr === null) return '—'
-  return `R-${String(nr).padStart(4, '0')}`
+  return nr != null ? `R-${String(nr).padStart(4, '0')}` : '—'
 }
-
-function formatDate(date: string | null | undefined) {
-  if (!date) return '—'
-  return new Date(date).toLocaleDateString('de-DE')
+function formatDate(d: string | null | undefined) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('de-DE')
 }
 
 type SortKey = 'referenz_nr' | 'datum' | 'person' | 'korrespondent' | 'typ' | 'betrag' | 'zahlung_status'
 type SortDir = 'asc' | 'desc'
+type ToggableCol = 'typ' | 'notiz' | 'paperless'
+
+const TOGGLEABLE_COLS: { key: ToggableCol; label: string }[] = [
+  { key: 'typ', label: 'Typ' },
+  { key: 'notiz', label: 'Notiz' },
+  { key: 'paperless', label: 'Paperless' },
+]
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
-    <span className={`ml-1 inline-block ${active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}>
-      {active && dir === 'desc' ? '↓' : '↑'}
+    <span style={{ marginLeft: 3, opacity: active ? 1 : 0.3, color: active ? 'var(--primary)' : 'inherit' }}>
+      {active ? (dir === 'desc' ? '↓' : '↑') : '↕'}
     </span>
   )
 }
@@ -74,497 +82,544 @@ function PaperlessBadge({ r, paperlessNgxUrl }: { r: Rechnung; paperlessNgxUrl?:
   return null
 }
 
+// ─── Hauptkomponente ──────────────────────────────────────────────────────────
+
 export default function RechnungenTable({
   rechnungen, personen, correspondents,
   selectedIds, onToggleSelect, onToggleAll,
-  onUpdate, onDelete, onArchivToggle, archivModus, paperlessNgxUrl,
+  onDelete, onArchivToggle, onOpenSlider, archivModus, paperlessNgxUrl,
 }: Props) {
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editValues, setEditValues] = useState<UpdateRechnung>({})
-  const [saving, setSaving] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>('datum')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [searchText, setSearchText] = useState('')
   const [anhangExpandedId, setAnhangExpandedId] = useState<string | null>(null)
+  const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
+  const [tableFocused, setTableFocused] = useState(false)
+  const [showColPicker, setShowColPicker] = useState(false)
+  const [hiddenCols, setHiddenCols] = useState<Set<ToggableCol>>(() => {
+    try {
+      const s = localStorage.getItem('rechnungen_hidden_cols')
+      return s ? new Set(JSON.parse(s) as ToggableCol[]) : new Set()
+    } catch { return new Set() }
+  })
+
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const colPickerRef = useRef<HTMLDivElement>(null)
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([])
+  const searchRef = useRef<HTMLInputElement>(null)
 
   const personMap = Object.fromEntries(personen.map(p => [p.id, p]))
-  const corrMap = Object.fromEntries(correspondents.map(c => [c.id, c]))
+  const corrMap   = Object.fromEntries(correspondents.map(c => [c.id, c]))
+  const todayStr  = new Date().toISOString().slice(0, 10)
+
+  // ── Spalten-Sichtbarkeit ──────────────────────────────────────────────────
+
+  function isVisible(col: ToggableCol) { return !hiddenCols.has(col) }
+
+  function toggleCol(col: ToggableCol) {
+    setHiddenCols(prev => {
+      const next = new Set(prev)
+      next.has(col) ? next.delete(col) : next.add(col)
+      localStorage.setItem('rechnungen_hidden_cols', JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  // Spalten-Picker schließen bei Klick außerhalb
+  useEffect(() => {
+    if (!showColPicker) return
+    function handler(e: MouseEvent) {
+      if (colPickerRef.current && !colPickerRef.current.contains(e.target as Node)) {
+        setShowColPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showColPicker])
+
+  // ── Sortierung ────────────────────────────────────────────────────────────
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('asc') }
+    setFocusedIdx(null)
   }
 
   const sorted = [...rechnungen].sort((a, b) => {
     let cmp = 0
     switch (sortKey) {
-      case 'referenz_nr': cmp = (a.referenz_nr ?? -1) - (b.referenz_nr ?? -1); break
-      case 'datum': cmp = a.datum.localeCompare(b.datum); break
-      case 'person': cmp = (personMap[a.person_id]?.name ?? '').localeCompare(personMap[b.person_id]?.name ?? ''); break
+      case 'referenz_nr':   cmp = (a.referenz_nr ?? -1) - (b.referenz_nr ?? -1); break
+      case 'datum':         cmp = a.datum.localeCompare(b.datum); break
+      case 'person':        cmp = (personMap[a.person_id]?.name ?? '').localeCompare(personMap[b.person_id]?.name ?? ''); break
       case 'korrespondent': cmp = (corrMap[a.leistungserbringer_id]?.name ?? '').localeCompare(corrMap[b.leistungserbringer_id]?.name ?? ''); break
-      case 'typ': cmp = a.typ.localeCompare(b.typ); break
-      case 'betrag': cmp = a.betrag - b.betrag; break
-      case 'zahlung_status': cmp = a.zahlung_status.localeCompare(b.zahlung_status); break
+      case 'typ':           cmp = a.typ.localeCompare(b.typ); break
+      case 'betrag':        cmp = a.betrag - b.betrag; break
+      case 'zahlung_status':cmp = a.zahlung_status.localeCompare(b.zahlung_status); break
     }
     return sortDir === 'asc' ? cmp : -cmp
   })
 
-  const allSelected = sorted.length > 0 && sorted.every(r => selectedIds.has(r.id))
+  // ── Suche ─────────────────────────────────────────────────────────────────
 
-  const startEdit = (r: Rechnung) => {
-    setEditingId(r.id)
-    setEditValues({
-      betrag: r.betrag,
-      datum: r.datum,
-      zahlungsziel: r.zahlungsziel ?? '',
-      bezahlt_am: r.bezahlt_am ?? '',
-      beihilfe_eingereicht_am: r.beihilfe_eingereicht_am ?? '',
-      pkv_eingereicht_am: r.pkv_eingereicht_am ?? '',
-      notiz: r.notiz ?? '',
-      leistungserbringer_id: r.leistungserbringer_id,
-      typ: r.typ,
-      person_id: r.person_id,
-      beihilfe_erstattet_betrag: r.beihilfe_erstattet_betrag,
-      pkv_erstattet_betrag: r.pkv_erstattet_betrag,
-    })
-  }
+  const q = searchText.trim().toLowerCase()
+  const filtered = q
+    ? sorted.filter(r =>
+        corrMap[r.leistungserbringer_id]?.name.toLowerCase().includes(q) ||
+        personMap[r.person_id]?.name.toLowerCase().includes(q) ||
+        formatReferenz(r.referenz_nr).toLowerCase().includes(q) ||
+        (r.notiz?.toLowerCase().includes(q) ?? false)
+      )
+    : sorted
 
-  const saveEdit = async (id: string) => {
-    setSaving(true)
-    try {
-      await onUpdate(id, editValues)
-      setEditingId(null)
-    } finally {
-      setSaving(false)
+  const allSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))
+
+  // ── Keyboard-Navigation ───────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (focusedIdx === null) return
+    rowRefs.current[focusedIdx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [focusedIdx])
+
+  function handleWrapperKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    // Nicht abfangen wenn im Suchfeld getippt wird
+    if ((e.target as HTMLElement) === searchRef.current) {
+      if (e.key === 'ArrowDown' && filtered.length > 0) {
+        e.preventDefault()
+        setFocusedIdx(0)
+      }
+      return
+    }
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setFocusedIdx(i => i === null ? 0 : Math.min(i + 1, filtered.length - 1))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setFocusedIdx(i => i === null ? filtered.length - 1 : Math.max(i - 1, 0))
+        break
+      case 'Enter':
+        if (focusedIdx !== null) { e.preventDefault(); onOpenSlider?.(filtered[focusedIdx].id) }
+        break
+      case ' ':
+        if (focusedIdx !== null) { e.preventDefault(); onToggleSelect(filtered[focusedIdx].id) }
+        break
+      case 'Escape':
+        setFocusedIdx(null)
+        break
     }
   }
 
-  const inputClass = 'border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1 text-xs w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500'
-  const mobileInputClass = 'border border-gray-300 dark:border-gray-600 rounded px-2 py-2 text-sm w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500'
+  // ── Summen ────────────────────────────────────────────────────────────────
+
+  const totals = {
+    betrag:         filtered.reduce((s, r) => s + r.betrag, 0),
+    bhErwartet:     filtered.reduce((s, r) => s + (r.beihilfe_anteil_erwartet ?? 0), 0),
+    bhTatsaechlich: filtered.reduce((s, r) => s + (r.beihilfe_erstattet_betrag ?? 0), 0),
+    pkvErwartet:    filtered.reduce((s, r) => s + (r.pkv_anteil_erwartet ?? 0), 0),
+    pkvTatsaechlich:filtered.reduce((s, r) => s + (r.pkv_erstattet_betrag ?? 0), 0),
+    hasBH:          filtered.some(r => r.beihilfe_anteil_erwartet != null),
+    hasPKV:         filtered.some(r => r.pkv_anteil_erwartet != null),
+  }
+
+  // ── Toolbar & Column-Picker ────────────────────────────────────────────────
+
+  const TH_STYLE = {
+    padding: '8px 12px',
+    fontSize: 10,
+    fontWeight: 700,
+    color: 'var(--text-subtle)',
+    letterSpacing: '0.08em',
+    borderBottom: '1px solid var(--border)',
+    whiteSpace: 'nowrap' as const,
+    userSelect: 'none' as const,
+  }
+
+  const sortableTH = (key: SortKey, label: string, align: 'left' | 'right' = 'left') => (
+    <th key={key} onClick={() => toggleSort(key)}
+      style={{ ...TH_STYLE, textAlign: align, cursor: 'pointer' }}>
+      {label}<SortIcon active={sortKey === key} dir={sortDir} />
+    </th>
+  )
 
   return (
-    <div>
-      {/* ── Mobile-Ansicht: Karten ───────────────────────────────────────── */}
+    <div
+      ref={wrapperRef}
+      tabIndex={0}
+      onKeyDown={handleWrapperKeyDown}
+      onFocus={() => setTableFocused(true)}
+      onBlur={e => { if (!wrapperRef.current?.contains(e.relatedTarget as Node)) { setTableFocused(false); setFocusedIdx(null) } }}
+      style={{ outline: 'none' }}
+    >
+
+      {/* ── Toolbar ────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface-alt)' }}>
+        <input
+          ref={searchRef}
+          type="search"
+          placeholder="Suchen nach Name, Referenz, Notiz…"
+          value={searchText}
+          onChange={e => { setSearchText(e.target.value); setFocusedIdx(null) }}
+          style={{ flex: 1, padding: '5px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg, var(--surface))', color: 'var(--text)', outline: 'none' }}
+        />
+        {q && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            {filtered.length} / {rechnungen.length}
+          </span>
+        )}
+        {/* Spalten-Auswahl */}
+        <div ref={colPickerRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowColPicker(p => !p)}
+            title="Spalten ein-/ausblenden"
+            style={{ display: 'flex', alignItems: 'center', padding: '5px 7px', borderRadius: 6, border: '1px solid var(--border)', background: showColPicker ? 'var(--surface-hi)' : 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+          >
+            <Settings style={{ width: 14, height: 14 }} />
+          </button>
+          {showColPicker && (
+            <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 4px', minWidth: 130, boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }}>
+              {TOGGLEABLE_COLS.map(({ key, label }) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 12, color: 'var(--text)', borderRadius: 5 }}>
+                  <input type="checkbox" checked={isVisible(key)} onChange={() => toggleCol(key)} style={{ accentColor: 'var(--primary)' }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Mobile-Ansicht: Karten ─────────────────────────────────────── */}
       <div className="sm:hidden">
-        {/* Alle auswählen */}
-        {sorted.length > 0 && (
-          <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
-            <input type="checkbox" checked={allSelected} onChange={onToggleAll}
-              className="rounded border-gray-300 dark:border-gray-600 w-4 h-4" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">Alle auswählen</span>
+        {filtered.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid var(--row-border)', background: 'var(--surface-alt)' }}>
+            <input type="checkbox" checked={allSelected} onChange={onToggleAll} style={{ accentColor: 'var(--primary)', width: 16, height: 16 }} />
+            <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Alle auswählen</span>
           </div>
         )}
-
-        {rechnungen.length === 0 && (
-          <div className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">
-            Keine Rechnungen vorhanden
+        {filtered.length === 0 && (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
+            {q ? 'Keine Ergebnisse für diese Suche.' : 'Keine Rechnungen vorhanden.'}
           </div>
         )}
-
-        <div className="divide-y divide-gray-100 dark:divide-gray-700">
-          {sorted.map((r) => {
-            const isEditing = editingId === r.id
+        <div className="app-divide-y">
+          {filtered.map((r) => {
             const person = personMap[r.person_id]
-            const corr = corrMap[r.leistungserbringer_id]
+            const corr   = corrMap[r.leistungserbringer_id]
+            const zlStatus = getZahlungszielStatus(r, todayStr)
 
             return (
-              <div key={r.id} className={`px-4 py-3 ${selectedIds.has(r.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                {isEditing ? (
-                  /* Mobile Edit Form */
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-mono text-gray-400 dark:text-gray-500">{formatReferenz(r.referenz_nr)}</span>
-                      <div className="flex gap-2">
-                        <button onClick={() => saveEdit(r.id)} disabled={saving}
-                          className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50">
-                          Sichern
-                        </button>
-                        <button onClick={() => setEditingId(null)}
-                          className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-600">
-                          Abbruch
-                        </button>
-                      </div>
+              <div key={r.id} style={{ padding: '12px 14px', background: selectedIds.has(r.id) ? 'var(--row-active)' : 'transparent' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <input type="checkbox" checked={selectedIds.has(r.id)}
+                    onChange={() => onToggleSelect(r.id)}
+                    style={{ marginTop: 3, accentColor: 'var(--primary)', width: 16, height: 16, flexShrink: 0 }} />
+                  <div
+                    style={{ flex: 1, minWidth: 0, cursor: onOpenSlider ? 'pointer' : 'default' }}
+                    onClick={() => onOpenSlider?.(r.id)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(r.betrag)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>{formatReferenz(r.referenz_nr)}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Person</label>
-                        <select className={mobileInputClass} value={editValues.person_id ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, person_id: e.target.value }))}>
-                          {personen.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Typ</label>
-                        <select className={mobileInputClass} value={editValues.typ ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, typ: e.target.value }))}>
-                          <option value="arzt">Arzt</option>
-                          <option value="apotheke">Apotheke</option>
-                          <option value="krankenhaus">Krankenhaus</option>
-                        </select>
-                      </div>
-                      <div className="col-span-2 flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Leistungserbringer</label>
-                        <select className={mobileInputClass} value={editValues.leistungserbringer_id ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, leistungserbringer_id: e.target.value }))}>
-                          {correspondents.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Datum</label>
-                        <input type="date" className={mobileInputClass} value={editValues.datum ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, datum: e.target.value }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Betrag (€)</label>
-                        <input type="number" step="0.01" className={mobileInputClass}
-                          value={editValues.betrag ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, betrag: parseFloat(e.target.value) || 0 }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Bezahlt am</label>
-                        <input type="date" className={mobileInputClass} value={editValues.bezahlt_am ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, bezahlt_am: e.target.value }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Beihilfe eingereicht</label>
-                        <input type="date" className={mobileInputClass} value={editValues.beihilfe_eingereicht_am ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, beihilfe_eingereicht_am: e.target.value }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">PKV eingereicht</label>
-                        <input type="date" className={mobileInputClass} value={editValues.pkv_eingereicht_am ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, pkv_eingereicht_am: e.target.value }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">BH erstattet (€)</label>
-                        <input type="number" step="0.01" className={mobileInputClass}
-                          placeholder="—"
-                          value={editValues.beihilfe_erstattet_betrag ?? ''}
-                          onChange={e => {
-                            const v = e.target.value
-                            setEditValues(prev => ({ ...prev, beihilfe_erstattet_betrag: v === '' ? null : parseFloat(v) || 0 }))
-                          }} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">PKV erstattet (€)</label>
-                        <input type="number" step="0.01" className={mobileInputClass}
-                          placeholder="—"
-                          value={editValues.pkv_erstattet_betrag ?? ''}
-                          onChange={e => {
-                            const v = e.target.value
-                            setEditValues(prev => ({ ...prev, pkv_erstattet_betrag: v === '' ? null : parseFloat(v) || 0 }))
-                          }} />
-                      </div>
-                      <div className="col-span-2 flex flex-col gap-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Notiz</label>
-                        <input type="text" className={mobileInputClass} value={editValues.notiz ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, notiz: e.target.value }))} />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Mobile View Card */
-                  <div>
-                    <div className="flex items-start gap-3">
-                      <input type="checkbox" checked={selectedIds.has(r.id)}
-                        onChange={() => onToggleSelect(r.id)}
-                        className="mt-1 rounded border-gray-300 dark:border-gray-600 w-4 h-4 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 mb-0.5">
-                          <span className="font-semibold text-gray-800 dark:text-gray-100">{formatEuro(r.betrag)}</span>
-                          <span className="text-xs font-mono text-gray-400 dark:text-gray-500 shrink-0">{formatReferenz(r.referenz_nr)}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{person?.name ?? r.person_id}</span>
-                          <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{formatDate(r.datum)}</span>
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate mb-1.5">
-                          {corr?.name ?? r.leistungserbringer_id} · <span className="capitalize">{r.typ}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          <StatusBadge label="Zahlung" status={r.zahlung_status} />
-                          <StatusBadge label="Beihilfe" status={r.beihilfe_status} />
-                          <StatusBadge label="PKV" status={r.pkv_status} />
-                        </div>
-                        {(r.beihilfe_anteil_erwartet != null || r.beihilfe_erstattet_betrag != null || r.pkv_anteil_erwartet != null || r.pkv_erstattet_betrag != null) && (
-                          <div className="flex gap-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                            {r.beihilfe_anteil_erwartet != null && (
-                              <span>BH: {formatEuro(r.beihilfe_anteil_erwartet)}{r.beihilfe_erstattet_betrag != null && ` → ${formatEuro(r.beihilfe_erstattet_betrag)}`}</span>
-                            )}
-                            {r.pkv_anteil_erwartet != null && (
-                              <span>PKV: {formatEuro(r.pkv_anteil_erwartet)}{r.pkv_erstattet_betrag != null && ` → ${formatEuro(r.pkv_erstattet_betrag)}`}</span>
-                            )}
-                          </div>
-                        )}
-                        {r.paperless_uebertragen_am && (
-                          <div className="mt-1.5">
-                            <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 mt-2.5 ml-7">
-                      {!archivModus && (
-                        <button onClick={() => startEdit(r)}
-                          className="flex-1 px-2 py-2 text-xs text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30">
-                          Bearbeiten
-                        </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{person?.name ?? r.person_id}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>{formatDate(r.datum)}</span>
+                      {zlStatus && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: zlStatus === 'ueberfaellig' ? 'var(--rose-dim)' : 'var(--amber-dim)', color: zlStatus === 'ueberfaellig' ? 'var(--rose)' : 'var(--amber)' }}>
+                          {zlStatus === 'ueberfaellig' ? 'Überfällig' : `Fällig ${formatDate(r.zahlungsziel)}`}
+                        </span>
                       )}
-                      <button onClick={() => onArchivToggle(r.id, !archivModus)}
-                        className="flex-1 px-2 py-2 text-xs text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700 rounded hover:bg-amber-50 dark:hover:bg-amber-900/30">
-                        {archivModus ? 'Wiederherstellen' : 'Archivieren'}
-                      </button>
-                      <button onClick={() => onDelete(r.id)}
-                        className="flex-1 px-2 py-2 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/30">
-                        Löschen
-                      </button>
                     </div>
-                    {/* Anhänge (Mobile) */}
-                    <div className="mt-2 ml-7">
-                      <AnhangUpload rechnungId={r.id} referenzNr={r.referenz_nr} />
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                      {corr?.name ?? r.leistungserbringer_id}
+                      {isVisible('typ') && <> · <span style={{ textTransform: 'capitalize' }}>{r.typ}</span></>}
                     </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                      <StatusBadge label="Zahlung" status={r.zahlung_status} />
+                      <StatusBadge label="Beihilfe" status={r.beihilfe_status} />
+                      <StatusBadge label="PKV" status={r.pkv_status} />
+                    </div>
+                    {(r.beihilfe_anteil_erwartet != null || r.pkv_anteil_erwartet != null) && (
+                      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+                        {r.beihilfe_anteil_erwartet != null && (
+                          <span>BH: {formatEuro(r.beihilfe_anteil_erwartet)}{r.beihilfe_erstattet_betrag != null && ` → ${formatEuro(r.beihilfe_erstattet_betrag)}`}</span>
+                        )}
+                        {r.pkv_anteil_erwartet != null && (
+                          <span>PKV: {formatEuro(r.pkv_anteil_erwartet)}{r.pkv_erstattet_betrag != null && ` → ${formatEuro(r.pkv_erstattet_betrag)}`}</span>
+                        )}
+                      </div>
+                    )}
+                    {isVisible('notiz') && r.notiz && (
+                      <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic', marginTop: 3 }}>{r.notiz}</div>
+                    )}
+                    {isVisible('paperless') && r.paperless_uebertragen_am && (
+                      <div style={{ marginTop: 6 }}><PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} /></div>
+                    )}
                   </div>
-                )}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 10, marginLeft: 26 }}>
+                  <button onClick={() => onArchivToggle(r.id, !archivModus)}
+                    style={{ flex: 1, padding: '6px 0', fontSize: 12, color: 'var(--amber)', border: '1px solid var(--border)', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}>
+                    {archivModus ? 'Wiederherstellen' : 'Archivieren'}
+                  </button>
+                  <button onClick={() => onDelete(r.id)}
+                    style={{ flex: 1, padding: '6px 0', fontSize: 12, color: 'var(--rose)', border: '1px solid var(--border)', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}>
+                    Löschen
+                  </button>
+                </div>
               </div>
             )
           })}
         </div>
+        {/* Mobile Summe */}
+        {filtered.length > 1 && (
+          <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', background: 'var(--surface-alt)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{filtered.length} Rechnungen</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(totals.betrag)}</span>
+          </div>
+        )}
       </div>
 
-      {/* ── Desktop-Ansicht: Tabelle ─────────────────────────────────────── */}
-      <div className="hidden sm:block overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700">
-            <tr>
-              <th className="w-8 px-3 py-3">
-                <input type="checkbox" checked={allSelected} onChange={onToggleAll}
-                  className="rounded border-gray-300 dark:border-gray-600" />
+      {/* ── Desktop-Ansicht: Tabelle ───────────────────────────────────── */}
+      <div className="hidden sm:block overflow-x-auto" style={{ position: 'relative' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--surface-alt)', position: 'sticky', top: 0, zIndex: 2 }}>
+              <th style={{ ...TH_STYLE, width: 40, padding: '8px 10px 8px 14px', textAlign: 'center' }}>
+                <input type="checkbox" checked={allSelected} onChange={onToggleAll} style={{ accentColor: 'var(--primary)' }} />
               </th>
-              {(
-                [
-                  ['referenz_nr', 'Ref.', 'left'],
-                  ['datum', 'Datum', 'left'],
-                  ['person', 'Person', 'left'],
-                  ['korrespondent', 'Leistungserbringer', 'left'],
-                  ['typ', 'Typ', 'left'],
-                  ['betrag', 'Betrag', 'right'],
-                  ['zahlung_status', 'Status', 'left'],
-                ] as [SortKey, string, string][]
-              ).map(([key, label, align]) => (
-                <th key={key}
-                  className={`px-3 py-3 text-${align} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 whitespace-nowrap`}
-                  onClick={() => toggleSort(key)}
-                >
-                  {label}<SortIcon active={sortKey === key} dir={sortDir} />
-                </th>
-              ))}
-              <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">Beihilfe</th>
-              <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">PKV</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Notiz</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">Paperless</th>
-              <th className="px-3 py-3" />
+              {sortableTH('referenz_nr', 'REF.')}
+              {sortableTH('datum', 'DATUM')}
+              {sortableTH('person', 'PERSON')}
+              {sortableTH('korrespondent', 'LEISTUNGSERBRINGER')}
+              {isVisible('typ') && sortableTH('typ', 'TYP')}
+              {sortableTH('betrag', 'BETRAG', 'right')}
+              {sortableTH('zahlung_status', 'STATUS')}
+              <th style={{ ...TH_STYLE, textAlign: 'right' }}>BEIHILFE</th>
+              <th style={{ ...TH_STYLE, textAlign: 'right' }}>PKV</th>
+              {isVisible('notiz') && <th style={TH_STYLE}>NOTIZ</th>}
+              {isVisible('paperless') && <th style={TH_STYLE}>PAPERLESS</th>}
+              <th style={{ ...TH_STYLE, borderBottom: '1px solid var(--border)' }} />
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
-            {rechnungen.length === 0 && (
+          <tbody>
+            {filtered.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">
-                  Keine Rechnungen vorhanden
+                <td colSpan={20} style={{ padding: '32px 12px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
+                  {q ? 'Keine Ergebnisse für diese Suche.' : 'Keine Rechnungen vorhanden.'}
                 </td>
               </tr>
             )}
-            {sorted.map((r) => {
-              const isEditing = editingId === r.id
+            {filtered.map((r, idx) => {
+              const isSelected = selectedIds.has(r.id)
+              const isFocused  = focusedIdx === idx
+              const zlStatus   = getZahlungszielStatus(r, todayStr)
+
               return (
                 <React.Fragment key={r.id}>
-                <tr className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${selectedIds.has(r.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                  <td className="px-3 py-3">
-                    <input type="checkbox" checked={selectedIds.has(r.id)}
-                      onChange={() => onToggleSelect(r.id)}
-                      className="rounded border-gray-300 dark:border-gray-600" />
-                  </td>
-                  {isEditing ? (
-                    <>
-                      <td className="px-3 py-2 text-gray-400 dark:text-gray-500 text-xs font-mono">
-                        {formatReferenz(r.referenz_nr)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <input type="date" className={inputClass} value={editValues.datum ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, datum: e.target.value }))} />
-                      </td>
-                      <td className="px-3 py-2">
-                        <select className={inputClass} value={editValues.person_id ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, person_id: e.target.value }))}>
-                          {personen.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2">
-                        <select className={inputClass} value={editValues.leistungserbringer_id ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, leistungserbringer_id: e.target.value }))}>
-                          {correspondents.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2">
-                        <select className={inputClass} value={editValues.typ ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, typ: e.target.value }))}>
-                          <option value="arzt">Arzt</option>
-                          <option value="apotheke">Apotheke</option>
-                          <option value="krankenhaus">Krankenhaus</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <input type="number" step="0.01" className={inputClass + ' text-right'}
-                          value={editValues.betrag ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, betrag: parseFloat(e.target.value) || 0 }))} />
-                      </td>
-                      <td className="px-3 py-2 space-y-1">
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs text-gray-500 dark:text-gray-400 w-16">Bezahlt</label>
-                          <input type="date" className={inputClass}
-                            value={editValues.bezahlt_am ?? ''}
-                            onChange={e => setEditValues(v => ({ ...v, bezahlt_am: e.target.value }))} />
+                  <tr
+                    ref={el => { rowRefs.current[idx] = el }}
+                    style={{
+                      cursor: onOpenSlider ? 'pointer' : 'default',
+                      background: isFocused
+                        ? 'var(--primary-dim)'
+                        : isSelected ? 'var(--row-active)' : 'transparent',
+                      borderLeft: isSelected || isFocused
+                        ? '2px solid var(--primary)'
+                        : '2px solid transparent',
+                      outline: isFocused ? '1px solid var(--primary)' : 'none',
+                      outlineOffset: '-1px',
+                      transition: 'background 0.1s',
+                    }}
+                    className="table-row-hover"
+                    onClick={(e) => {
+                      if (onOpenSlider && !(e.target as HTMLElement).closest('input, button, a')) {
+                        setFocusedIdx(idx)
+                        onOpenSlider(r.id)
+                      }
+                    }}
+                    onMouseEnter={() => setFocusedIdx(idx)}
+                  >
+                    <td style={{ padding: '0 10px 0 12px', width: 40, textAlign: 'center', borderBottom: '1px solid var(--row-border)' }}
+                      onClick={e => { e.stopPropagation(); onToggleSelect(r.id) }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(r.id)} style={{ accentColor: 'var(--primary)' }} />
+                    </td>
+
+                    {/* REF */}
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, color: isSelected ? 'var(--primary)' : 'var(--text-muted)', borderBottom: '1px solid var(--row-border)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {formatReferenz(r.referenz_nr)}
+                    </td>
+
+                    {/* DATUM + Zahlungsziel */}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--row-border)', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatDate(r.datum)}</div>
+                      {zlStatus && (
+                        <div style={{ fontSize: 10, fontWeight: 700, marginTop: 1, color: zlStatus === 'ueberfaellig' ? 'var(--rose)' : 'var(--amber)' }}>
+                          {zlStatus === 'ueberfaellig' ? '⚠ Überfällig' : `Fällig ${formatDate(r.zahlungsziel)}`}
                         </div>
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs text-gray-500 dark:text-gray-400 w-16">Beihilfe</label>
-                          <input type="date" className={inputClass}
-                            value={editValues.beihilfe_eingereicht_am ?? ''}
-                            onChange={e => setEditValues(v => ({ ...v, beihilfe_eingereicht_am: e.target.value }))} />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs text-gray-500 dark:text-gray-400 w-16">PKV</label>
-                          <input type="date" className={inputClass}
-                            value={editValues.pkv_eingereicht_am ?? ''}
-                            onChange={e => setEditValues(v => ({ ...v, pkv_eingereicht_am: e.target.value }))} />
-                        </div>
+                      )}
+                    </td>
+
+                    {/* PERSON */}
+                    <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text)', fontWeight: 500, borderBottom: '1px solid var(--row-border)' }}>
+                      {personMap[r.person_id]?.name ?? r.person_id}
+                    </td>
+
+                    {/* LEISTUNGSERBRINGER */}
+                    <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text)', borderBottom: '1px solid var(--row-border)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={corrMap[r.leistungserbringer_id]?.name}>
+                      {corrMap[r.leistungserbringer_id]?.name ?? r.leistungserbringer_id}
+                    </td>
+
+                    {/* TYP (optional) */}
+                    {isVisible('typ') && (
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--row-border)' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--surface-hi)', padding: '2px 8px', borderRadius: 5 }}>{r.typ}</span>
                       </td>
-                      <td className="px-3 py-2 space-y-1">
-                        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-                          {r.beihilfe_anteil_erwartet != null ? formatEuro(r.beihilfe_anteil_erwartet) : '—'}
+                    )}
+
+                    {/* BETRAG */}
+                    <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 700, color: 'var(--text)', textAlign: 'right', borderBottom: '1px solid var(--row-border)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {formatEuro(r.betrag)}
+                    </td>
+
+                    {/* STATUS */}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--row-border)' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                        <StatusBadge label="Zahlung" status={r.zahlung_status} context="zahlung" />
+                        <StatusBadge label="Beihilfe" status={r.beihilfe_status} context="beihilfe" />
+                        <StatusBadge label="PKV" status={r.pkv_status} context="pkv" />
+                      </div>
+                    </td>
+
+                    {/* BEIHILFE */}
+                    <td style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid var(--row-border)', whiteSpace: 'nowrap' }}>
+                      {r.beihilfe_anteil_erwartet != null && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(r.beihilfe_anteil_erwartet)}</div>
+                      )}
+                      {r.beihilfe_erstattet_betrag != null && (
+                        <div style={{ fontSize: 11, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: r.beihilfe_differenz != null && r.beihilfe_differenz < 0 ? 'var(--rose)' : 'var(--green)' }}>
+                          {formatEuro(r.beihilfe_erstattet_betrag)}
                         </div>
-                        <input type="number" step="0.01" className={inputClass + ' text-right'}
-                          placeholder="erstattet"
-                          value={editValues.beihilfe_erstattet_betrag ?? ''}
-                          onChange={e => {
-                            const v = e.target.value
-                            setEditValues(prev => ({ ...prev, beihilfe_erstattet_betrag: v === '' ? null : parseFloat(v) || 0 }))
-                          }} />
-                      </td>
-                      <td className="px-3 py-2 space-y-1">
-                        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
-                          {r.pkv_anteil_erwartet != null ? formatEuro(r.pkv_anteil_erwartet) : '—'}
+                      )}
+                      {r.beihilfe_anteil_erwartet == null && r.beihilfe_erstattet_betrag == null && (
+                        <span style={{ color: 'var(--text-subtle)', fontSize: 12 }}>—</span>
+                      )}
+                    </td>
+
+                    {/* PKV */}
+                    <td style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid var(--row-border)', whiteSpace: 'nowrap' }}>
+                      {r.pkv_anteil_erwartet != null && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(r.pkv_anteil_erwartet)}</div>
+                      )}
+                      {r.pkv_erstattet_betrag != null && (
+                        <div style={{ fontSize: 11, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: r.pkv_differenz != null && r.pkv_differenz < 0 ? 'var(--rose)' : 'var(--green)' }}>
+                          {formatEuro(r.pkv_erstattet_betrag)}
                         </div>
-                        <input type="number" step="0.01" className={inputClass + ' text-right'}
-                          placeholder="erstattet"
-                          value={editValues.pkv_erstattet_betrag ?? ''}
-                          onChange={e => {
-                            const v = e.target.value
-                            setEditValues(prev => ({ ...prev, pkv_erstattet_betrag: v === '' ? null : parseFloat(v) || 0 }))
-                          }} />
+                      )}
+                      {r.pkv_anteil_erwartet == null && r.pkv_erstattet_betrag == null && (
+                        <span style={{ color: 'var(--text-subtle)', fontSize: 12 }}>—</span>
+                      )}
+                    </td>
+
+                    {/* NOTIZ (optional) */}
+                    {isVisible('notiz') && (
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--row-border)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={r.notiz ?? undefined}>
+                        {r.notiz ?? '—'}
                       </td>
-                      <td className="px-3 py-2">
-                        <input type="text" className={inputClass} value={editValues.notiz ?? ''}
-                          onChange={e => setEditValues(v => ({ ...v, notiz: e.target.value }))} />
-                      </td>
-                      <td className="px-3 py-2">
+                    )}
+
+                    {/* PAPERLESS (optional) */}
+                    {isVisible('paperless') && (
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--row-border)' }}>
                         <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex gap-1">
-                          <button onClick={() => saveEdit(r.id)} disabled={saving}
-                            className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50">
-                            Sichern
-                          </button>
-                          <button onClick={() => setEditingId(null)}
-                            className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded hover:bg-gray-200 dark:hover:bg-gray-600">
-                            Abbruch
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-3 py-3 whitespace-nowrap font-mono text-xs text-gray-500 dark:text-gray-400">{formatReferenz(r.referenz_nr)}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-gray-700 dark:text-gray-300">{formatDate(r.datum)}</td>
-                      <td className="px-3 py-3 text-gray-700 dark:text-gray-300">{personMap[r.person_id]?.name ?? r.person_id}</td>
-                      <td className="px-3 py-3 text-gray-700 dark:text-gray-300">{corrMap[r.leistungserbringer_id]?.name ?? r.leistungserbringer_id}</td>
-                      <td className="px-3 py-3 text-gray-500 dark:text-gray-400 capitalize">{r.typ}</td>
-                      <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-gray-200">{formatEuro(r.betrag)}</td>
-                      <td className="px-3 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          <StatusBadge label="Zahlung" status={r.zahlung_status} />
-                          <StatusBadge label="Beihilfe" status={r.beihilfe_status} />
-                          <StatusBadge label="PKV" status={r.pkv_status} />
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-right whitespace-nowrap">
-                        {r.beihilfe_anteil_erwartet != null ? (
-                          <div className="text-xs text-gray-500 dark:text-gray-400">{formatEuro(r.beihilfe_anteil_erwartet)}</div>
-                        ) : null}
-                        {r.beihilfe_erstattet_betrag != null ? (
-                          <div className={`text-xs font-medium ${r.beihilfe_differenz != null && r.beihilfe_differenz !== 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                            {formatEuro(r.beihilfe_erstattet_betrag)}
-                          </div>
-                        ) : null}
-                        {r.beihilfe_anteil_erwartet == null && r.beihilfe_erstattet_betrag == null ? <span className="text-gray-400">—</span> : null}
-                      </td>
-                      <td className="px-3 py-3 text-right whitespace-nowrap">
-                        {r.pkv_anteil_erwartet != null ? (
-                          <div className="text-xs text-gray-500 dark:text-gray-400">{formatEuro(r.pkv_anteil_erwartet)}</div>
-                        ) : null}
-                        {r.pkv_erstattet_betrag != null ? (
-                          <div className={`text-xs font-medium ${r.pkv_differenz != null && r.pkv_differenz !== 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                            {formatEuro(r.pkv_erstattet_betrag)}
-                          </div>
-                        ) : null}
-                        {r.pkv_anteil_erwartet == null && r.pkv_erstattet_betrag == null ? <span className="text-gray-400">—</span> : null}
-                      </td>
-                      <td className="px-3 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">{r.notiz ?? '—'}</td>
-                      <td className="px-3 py-3">
-                        <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <div className="flex gap-1">
-                          {!archivModus && (
-                            <button onClick={() => startEdit(r)}
-                              className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-200 dark:border-blue-700 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30">
-                              Bearbeiten
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setAnhangExpandedId(id => id === r.id ? null : r.id)}
-                            className={`px-2 py-1 text-xs border rounded ${anhangExpandedId === r.id ? 'border-gray-400 bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                            title="Anhänge"
-                          >
-                            📎
-                          </button>
-                          <button
-                            onClick={() => onArchivToggle(r.id, !archivModus)}
-                            className="px-2 py-1 text-xs text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700 rounded hover:bg-amber-50 dark:hover:bg-amber-900/30"
-                          >
-                            {archivModus ? 'Wiederherstellen' : 'Archivieren'}
-                          </button>
-                          <button onClick={() => onDelete(r.id)}
-                            className="px-2 py-1 text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 border border-red-200 dark:border-red-700 rounded hover:bg-red-50 dark:hover:bg-red-900/30">
-                            Löschen
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  )}
-                </tr>
-                {/* Anhang-Expandier-Zeile (Desktop) */}
-                {anhangExpandedId === r.id && (
-                  <tr className="bg-gray-50 dark:bg-gray-700/30">
-                    <td colSpan={12} className="px-6 py-3">
-                      <AnhangUpload rechnungId={r.id} compact />
+                    )}
+
+                    {/* Aktionen */}
+                    <td style={{ padding: '8px 12px', borderBottom: '1px solid var(--row-border)', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); setAnhangExpandedId(id => id === r.id ? null : r.id) }}
+                          title="Anhänge"
+                          style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: `1px solid ${anhangExpandedId === r.id ? 'var(--border-hi)' : 'var(--border)'}`, background: anhangExpandedId === r.id ? 'var(--surface-hi)' : 'transparent', color: 'var(--text-muted)' }}>
+                          📎
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); onArchivToggle(r.id, !archivModus) }}
+                          title={archivModus ? 'Wiederherstellen' : 'Archivieren'}
+                          style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--amber)' }}>
+                          {archivModus ? '↩' : '🗄'}
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); onDelete(r.id) }}
+                          title="Löschen"
+                          style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--rose)' }}>
+                          ×
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                )}
+
+                  {/* Anhang-Expandier-Zeile */}
+                  {anhangExpandedId === r.id && (
+                    <tr style={{ background: 'var(--surface-alt)' }}>
+                      <td colSpan={20} style={{ padding: '12px 24px' }}>
+                        <AnhangUpload rechnungId={r.id} referenzNr={r.referenz_nr} compact />
+                      </td>
+                    </tr>
+                  )}
                 </React.Fragment>
-            )
-          })}
-        </tbody>
-      </table>
+              )
+            })}
+          </tbody>
+
+          {/* ── Summenzeile ─────────────────────────────────────────────── */}
+          {filtered.length > 1 && (
+            <tfoot>
+              <tr style={{ background: 'var(--surface-alt)', borderTop: '2px solid var(--border)' }}>
+                <td colSpan={2} style={{ padding: '8px 12px 8px 14px' }} />
+                <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)' }}>
+                  {filtered.length} Rechnungen
+                </td>
+                <td colSpan={2 + (isVisible('typ') ? 1 : 0)} />
+                <td style={{ padding: '8px 12px', fontSize: 13, fontWeight: 700, color: 'var(--text)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  {formatEuro(totals.betrag)}
+                </td>
+                <td />
+                <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {totals.hasBH && (
+                    <>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(totals.bhErwartet)}</div>
+                      {totals.bhTatsaechlich > 0 && <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(totals.bhTatsaechlich)}</div>}
+                    </>
+                  )}
+                </td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {totals.hasPKV && (
+                    <>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(totals.pkvErwartet)}</div>
+                      {totals.pkvTatsaechlich > 0 && <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(totals.pkvTatsaechlich)}</div>}
+                    </>
+                  )}
+                </td>
+                {isVisible('notiz') && <td />}
+                {isVisible('paperless') && <td />}
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+
+        {/* Keyboard-Hint */}
+        {tableFocused && filtered.length > 0 && (
+          <div style={{ position: 'sticky', bottom: 0, right: 0, textAlign: 'right', padding: '4px 12px', fontSize: 10, color: 'var(--text-subtle)', background: 'var(--surface-alt)', borderTop: '1px solid var(--border)' }}>
+            ↑↓ navigieren · Enter öffnen · Leertaste auswählen · Esc zurücksetzen
+          </div>
+        )}
+      </div>
     </div>
-  </div>
   )
 }
