@@ -258,7 +258,7 @@ export default function Layout() {
       </nav>
 
       {/* ── Page content ── */}
-      <main className="px-4 sm:px-6 lg:px-16 py-4 sm:py-6">
+      <main className="px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <Outlet />
       </main>
 
