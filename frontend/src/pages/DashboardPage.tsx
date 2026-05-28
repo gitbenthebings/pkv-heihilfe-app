@@ -8,10 +8,10 @@ import type { PipelineData, BescheidSummary, OffenerAntragSummary, BreIndikator 
 // ── Formatter ─────────────────────────────────────────────────────────────────
 
 function fmt(n: number) {
-  return (n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+  return (n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 }
 function fmtS(n: number) {
-  return Math.round(n || 0).toLocaleString('de-DE') + ' €'
+  return Math.round(n || 0).toLocaleString('de-DE') + ' €'
 }
 function gruss() {
   const h = new Date().getHours()
@@ -26,7 +26,7 @@ function fmtDatum(s: string) {
 
 // ── Card ──────────────────────────────────────────────────────────────────────
 
-function Card({ children, padding = '14px 16px', style = {} }: {
+function Card({ children, padding = '16px 18px', style = {} }: {
   children: React.ReactNode
   padding?: string
   style?: React.CSSProperties
@@ -53,13 +53,13 @@ function SectionLabel({ children, action, onAction }: {
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
         {children}
       </div>
       {action && (
         <span
           onClick={onAction}
-          style={{ fontSize: 11, color: 'var(--primary)', cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}
+          style={{ fontSize: 13, color: 'var(--primary)', cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}
         >
           {action} →
         </span>
@@ -82,7 +82,7 @@ function HeroSection({ name, jahr, pipeline_bh, pipeline_pkv }: {
 
   return (
     <div style={{
-      marginBottom: 12,
+      marginBottom: 14,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -91,12 +91,12 @@ function HeroSection({ name, jahr, pipeline_bh, pipeline_pkv }: {
     }}>
       <div>
         <div style={{
-          fontSize: 10, color: 'var(--text-subtle)', fontWeight: 600,
-          letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2,
+          fontSize: 12, color: 'var(--text-subtle)', fontWeight: 600,
+          letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 3,
         }}>
           Dashboard · {jahr}
         </div>
-        <h1 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
           {gruss()}, {name}.
         </h1>
       </div>
@@ -105,27 +105,27 @@ function HeroSection({ name, jahr, pipeline_bh, pipeline_pkv }: {
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 10, display: 'flex', overflow: 'hidden',
       }}>
-        <div style={{ padding: '9px 16px', borderRight: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 2 }}>
+        <div style={{ padding: '11px 18px', borderRight: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 3 }}>
             VORAUSSICHTL. BEIHILFE
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--blue)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--blue)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
             {fmt(erwartetBH)}
           </div>
         </div>
-        <div style={{ padding: '9px 16px', borderRight: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 2 }}>
+        <div style={{ padding: '11px 18px', borderRight: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 3 }}>
             VORAUSSICHTL. PKV
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--teal)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
             {fmt(erwartetPKV)}
           </div>
         </div>
-        <div style={{ padding: '9px 16px', background: 'var(--surface-alt)' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 2 }}>
+        <div style={{ padding: '11px 18px', background: 'var(--surface-alt)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 3 }}>
             ERSTATTET {jahr} <span style={{ color: 'var(--green)', marginLeft: 3 }}>↑</span>
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--green)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
             {fmt(erstattetGesamt)}
           </div>
         </div>
@@ -153,21 +153,21 @@ function PipelineStage({ label, value, sub, anzahl, isLast }: {
   const tone = STAGE_TONES[label.toLowerCase()] ?? 'blue'
   return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'stretch' }}>
-      <div style={{ flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             {label}
           </span>
           <span style={{
             background: `var(--${tone}-dim)`, color: `var(--${tone})`,
-            fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
+            fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
             fontVariantNumeric: 'tabular-nums',
           }}>{anzahl}</span>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, color: `var(--${tone})`, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: `var(--${tone})`, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
           {fmtS(value)}
         </div>
-        <div style={{ fontSize: 9, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
           {sub}
         </div>
       </div>
@@ -196,13 +196,13 @@ function PipelineCard({ title, data, accentColor, accentDim, satzInfo, jahr }: {
     {
       label: 'Einreichbar',
       value: data.einreichbar.voraussichtlich,
-      sub: `v. ${fmtS(data.einreichbar.brutto)} brutto`,
+      sub: `v. ${fmtS(data.einreichbar.brutto)} brutto`,
       anzahl: data.einreichbar.anzahl,
     },
     {
       label: 'Eingereicht',
       value: data.eingereicht.voraussichtlich,
-      sub: `v. ${fmtS(data.eingereicht.brutto)} brutto`,
+      sub: `v. ${fmtS(data.eingereicht.brutto)} brutto`,
       anzahl: data.eingereicht.anzahl,
     },
     {
@@ -224,25 +224,25 @@ function PipelineCard({ title, data, accentColor, accentDim, satzInfo, jahr }: {
   return (
     <Card padding="0">
       <div style={{
-        padding: '9px 14px 7px',
+        padding: '10px 16px 9px',
         borderBottom: '1px solid var(--border)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
       }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
             {title} · {jahr}
           </div>
-          <div style={{ fontSize: 10, color: 'var(--text-subtle)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {satzInfo}
           </div>
         </div>
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 5,
           background: accentDim, color: accentColor,
-          borderRadius: 14, padding: '2px 9px', flexShrink: 0,
+          borderRadius: 14, padding: '3px 11px', flexShrink: 0,
         }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em' }}>OFFEN</span>
-          <span style={{ fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em' }}>OFFEN</span>
+          <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
             {fmtS(offenBetrag)}
           </span>
         </div>
@@ -268,10 +268,10 @@ function BescheideChart({ bescheide, onAlle }: {
     <Card>
       <SectionLabel action="Alle" onAction={onAlle}>Letzte Bescheide</SectionLabel>
       {bescheide.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine Bescheide vorhanden.</p>
+        <p style={{ fontSize: 13, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine Bescheide vorhanden.</p>
       ) : (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {bescheide.map((b) => {
               const eingereicht = b.erstattet + b.abgelehnt
               const widthPct = eingereicht > 0 ? (eingereicht / maxBetrag) * 100 : 0
@@ -282,21 +282,21 @@ function BescheideChart({ bescheide, onAlle }: {
                   key={b.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '50px 1fr 76px',
+                    gridTemplateColumns: '60px 1fr 84px',
                     alignItems: 'center',
-                    gap: 8,
+                    gap: 10,
                     opacity: b.overridden ? 0.4 : 1,
                   }}
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <div style={{ fontSize: 10, color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                       {fmtDatum(b.bescheid_datum)}
                     </div>
-                    <div style={{ fontSize: 8, fontWeight: 700, color: b.antrag_typ === 'pkv' ? 'var(--teal)' : 'var(--blue)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: b.antrag_typ === 'pkv' ? 'var(--teal)' : 'var(--blue)' }}>
                       {b.stelle ?? kurz}
                     </div>
                   </div>
-                  <div style={{ position: 'relative', height: 14 }}>
+                  <div style={{ position: 'relative', height: 16 }}>
                     <div style={{
                       display: 'flex', height: '100%', borderRadius: 3, overflow: 'hidden',
                       width: `${widthPct}%`, background: 'var(--surface-alt)',
@@ -308,7 +308,7 @@ function BescheideChart({ bescheide, onAlle }: {
                       <span style={{
                         position: 'absolute', left: `calc(${widthPct}% + 4px)`, top: '50%',
                         transform: 'translateY(-50%)',
-                        fontSize: 7, fontWeight: 700, padding: '1px 4px', borderRadius: 6,
+                        fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
                         background: 'var(--amber-dim)', color: 'var(--amber)',
                         border: '1px solid rgba(232,160,48,.25)',
                         letterSpacing: '.04em', whiteSpace: 'nowrap',
@@ -316,23 +316,23 @@ function BescheideChart({ bescheide, onAlle }: {
                     )}
                   </div>
                   <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', fontVariantNumeric: 'tabular-nums' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)' }}>{fmtS(b.erstattet)}</div>
-                    <div style={{ fontSize: 8, color: 'var(--text-subtle)' }}>v. {fmtS(eingereicht)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>{fmtS(b.erstattet)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>v. {fmtS(eingereicht)}</div>
                   </div>
                 </div>
               )
             })}
           </div>
           <div style={{
-            display: 'flex', gap: 10, marginTop: 8, paddingTop: 7,
+            display: 'flex', gap: 12, marginTop: 10, paddingTop: 9,
             borderTop: '1px solid var(--row-border)',
-            fontSize: 9, color: 'var(--text-muted)',
+            fontSize: 11, color: 'var(--text-muted)',
           }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--green)', display: 'inline-block' }} /> erstattet
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--green)', display: 'inline-block' }} /> erstattet
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--rose)', display: 'inline-block' }} /> abgelehnt
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--rose)', display: 'inline-block' }} /> abgelehnt
             </span>
             <span style={{ marginLeft: 'auto', color: 'var(--text-subtle)' }}>{bescheide.length} Bescheide</span>
           </div>
@@ -367,9 +367,9 @@ function OffeneAntraegeSection({ antraege, onAlle, onAntrag }: {
     <Card>
       <SectionLabel action="Alle" onAction={onAlle}>Offene Anträge</SectionLabel>
       {antraege.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine offenen Anträge.</p>
+        <p style={{ fontSize: 13, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine offenen Anträge.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {antraege.map((a) => {
             const tone = STATUS_TONE[a.status] ?? 'text-muted'
             const typTone = a.typ === 'beihilfe' ? 'blue' : 'teal'
@@ -379,26 +379,26 @@ function OffeneAntraegeSection({ antraege, onAlle, onAntrag }: {
                 onClick={() => onAntrag(a.id)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '6px 8px', borderRadius: 6,
+                  padding: '8px 10px', borderRadius: 6,
                   background: 'var(--surface-alt)', cursor: 'pointer',
                 }}
               >
                 <span style={{
-                  width: 4, height: 28, borderRadius: 2,
+                  width: 4, height: 32, borderRadius: 2,
                   background: `var(--${tone})`, flexShrink: 0,
                 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ fontSize: 9, color: 'var(--text-subtle)', fontWeight: 600 }}>{a.nr}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontWeight: 600 }}>{a.nr}</span>
                     <span style={{
-                      fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
+                      fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
                       background: `var(--${typTone}-dim)`, color: `var(--${typTone})`,
                     }}>
                       {a.typ === 'beihilfe' ? 'BH' : 'PKV'}
                     </span>
                   </div>
                   <div style={{
-                    fontSize: 11, color: a.titel ? 'var(--text)' : 'var(--text-subtle)',
+                    fontSize: 13, color: a.titel ? 'var(--text)' : 'var(--text-subtle)',
                     fontWeight: 500, fontStyle: a.titel ? 'normal' : 'italic',
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                   }}>
@@ -407,12 +407,12 @@ function OffeneAntraegeSection({ antraege, onAlle, onAntrag }: {
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{
-                    fontSize: 8, color: `var(--${tone})`, fontWeight: 700,
+                    fontSize: 10, color: `var(--${tone})`, fontWeight: 700,
                     letterSpacing: '0.04em', textTransform: 'uppercase',
                   }}>
                     {STATUS_LABEL[a.status] ?? a.status}
                   </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
                     {fmtS(a.betrag)}
                   </div>
                 </div>
@@ -431,7 +431,7 @@ function BeitragsRueckSection({ bre }: { bre: BreIndikator[] }) {
   if (bre.length === 0) return (
     <Card>
       <SectionLabel>PKV-Beitragsrückerstattung</SectionLabel>
-      <p style={{ fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>
+      <p style={{ fontSize: 13, color: 'var(--text-subtle)', fontStyle: 'italic' }}>
         Keine BRE-Schwellen konfiguriert.
       </p>
     </Card>
@@ -440,7 +440,7 @@ function BeitragsRueckSection({ bre }: { bre: BreIndikator[] }) {
   return (
     <Card>
       <SectionLabel>PKV-Beitragsrückerstattung</SectionLabel>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {bre.map((p) => {
           const hasSchwelle = p.bre_schwelle > 0
           const eingereichtPct = hasSchwelle ? Math.min((p.pkv_eingereicht / p.bre_schwelle) * 100, 100) : 0
@@ -449,16 +449,16 @@ function BeitragsRueckSection({ bre }: { bre: BreIndikator[] }) {
             : 0
           return (
             <div key={p.person_id} style={{ padding: '2px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{p.person_name}</div>
-                <div style={{ fontSize: 9, color: 'var(--text-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.person_name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
                   {hasSchwelle
                     ? `Schw. ${fmtS(p.bre_schwelle)}`
                     : 'keine Schw.'}
                 </div>
               </div>
               {hasSchwelle ? (
-                <div style={{ position: 'relative', background: 'var(--surface-alt)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                <div style={{ position: 'relative', background: 'var(--surface-alt)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
                   <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
                     width: `${eingereichtPct}%`, background: 'var(--blue)',
@@ -469,18 +469,18 @@ function BeitragsRueckSection({ bre }: { bre: BreIndikator[] }) {
                   }} />
                 </div>
               ) : (
-                <div style={{ fontSize: 10, color: 'var(--text-subtle)', fontStyle: 'italic' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>
                   Schwelle bereits ausgeschöpft.
                 </div>
               )}
               {hasSchwelle && (
-                <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 9, color: 'var(--text-subtle)' }}>
+                <div style={{ display: 'flex', gap: 12, marginTop: 5, fontSize: 11, color: 'var(--text-subtle)' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--blue)', display: 'inline-block' }} />
+                    <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--blue)', display: 'inline-block' }} />
                     {fmtS(p.pkv_eingereicht)} eingereicht
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--amber)', display: 'inline-block' }} />
+                    <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--amber)', display: 'inline-block' }} />
                     {fmtS(p.pkv_offen)} offen
                   </span>
                 </div>
@@ -537,17 +537,17 @@ export default function DashboardPage() {
   if (isLoading || !data) {
     return (
       <div>
-        <div style={{ marginBottom: 12, display: 'flex', gap: 18, alignItems: 'center', justifyContent: 'space-between' }}>
-          <Skeleton h={52} />
+        <div style={{ marginBottom: 14, display: 'flex', gap: 18, alignItems: 'center', justifyContent: 'space-between' }}>
+          <Skeleton h={60} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <Skeleton h={130} />
-          <Skeleton h={130} />
+          <Skeleton h={140} />
+          <Skeleton h={140} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: 12 }}>
-          <Skeleton h={220} />
-          <Skeleton h={220} />
-          <Skeleton h={220} />
+          <Skeleton h={240} />
+          <Skeleton h={240} />
+          <Skeleton h={240} />
         </div>
       </div>
     )
