@@ -154,6 +154,22 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge", get(handlers::beihilfe_bescheide::list_anhaenge))
         .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid", get(handlers::beihilfe_bescheide::serve_anhang))
         .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid", delete(handlers::beihilfe_bescheide::delete_anhang))
+        // Belege
+        .route("/api/belege", get(handlers::belege::list))
+        .route("/api/belege", post(handlers::belege::upload))
+        .route("/api/belege/:id", get(handlers::belege::get))
+        .route("/api/belege/:id", patch(handlers::belege::update))
+        .route("/api/belege/:id", delete(handlers::belege::delete))
+        .route("/api/belege/:id/datei", get(handlers::belege::serve_datei))
+        .route("/api/belege/:id/thumbnail", get(handlers::belege::serve_thumbnail))
+        // Belege ↔ Rechnungen
+        .route("/api/rechnungen/:id/belege", get(handlers::belege::list_for_rechnung))
+        .route("/api/rechnungen/:id/belege", post(handlers::belege::add_to_rechnung))
+        .route("/api/rechnungen/:id/belege/:bid", delete(handlers::belege::remove_from_rechnung))
+        // Belege ↔ Anträge
+        .route("/api/beihilfe-antraege/:id/belege", get(handlers::belege::list_for_antrag))
+        .route("/api/beihilfe-antraege/:id/belege", post(handlers::belege::add_to_antrag))
+        .route("/api/beihilfe-antraege/:id/belege/:bid", delete(handlers::belege::remove_from_antrag))
         .layer(Extension(JwtSecret(cfg.jwt_secret.clone())))
         .layer(cors)
         .with_state(state);

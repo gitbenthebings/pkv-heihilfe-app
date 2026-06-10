@@ -9,6 +9,8 @@ import StammdatenPage from './pages/StammdatenPage'
 import BeihilfeAntraegePage from './pages/BeihilfeAntraegePage'
 import AktivitaetsLogPage from './pages/AktivitaetsLogPage'
 import AuswertungPage from './pages/AuswertungPage'
+import BelegePage from './pages/BelegePage'
+import UeberPage from './pages/UeberPage'
 import Layout from './components/Layout'
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -38,7 +40,9 @@ export default function App() {
             <Route path="beihilfe-antraege/:id" element={<BeihilfeAntraegePage />} />
             <Route path="auswertung" element={<AuswertungPage />} />
             <Route path="aktivitaetslog" element={<AktivitaetsLogPage />} />
+            <Route path="belege" element={<BelegePage />} />
             <Route path="stammdaten" element={<StammdatenPage />} />
+            <Route path="ueber" element={<UeberPage />} />
           </Route>
         </Routes>
       </JahrProvider>

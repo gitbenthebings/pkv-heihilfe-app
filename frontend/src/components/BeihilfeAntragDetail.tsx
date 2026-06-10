@@ -10,6 +10,7 @@ import { getCorrespondents } from '../api/correspondents'
 import { getBeihilfestellen } from '../api/beihilfestellen'
 import { getPkv } from '../api/pkv'
 import BeihilfeBescheidForm from './BeihilfeBescheidForm'
+import BelegReferenzListe from './BelegReferenzListe'
 import RechnungDetailSlider from './RechnungDetailSlider'
 import type { AntragStatus, UpdateBeihilfeAntrag } from '../types'
 
@@ -636,6 +637,14 @@ export default function BeihilfeAntragDetail({ antragId, onBack }: Props) {
           personMap={personMap}
           onOpenRechnung={setSliderRechnungId}
         />
+
+        {/* ── Belege section ── */}
+        <div style={{ padding: '0 18px', marginTop: 24 }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.04em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+            Belege
+          </p>
+          <BelegReferenzListe mode="antrag" id={antragId} antragTyp={antrag.typ as 'beihilfe' | 'pkv'} />
+        </div>
 
         <div style={{ height: 20 }} />
       </div>

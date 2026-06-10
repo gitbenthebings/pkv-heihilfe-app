@@ -7,8 +7,8 @@ import { getAktivitaet } from '../api/aktivitaet'
 import { getAntraege } from '../api/beihilfe_antraege'
 import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
-import AnhangUpload from './AnhangUpload'
 import AktivitaetsLog from './AktivitaetsLog'
+import BelegReferenzListe from './BelegReferenzListe'
 import type { Rechnung, UpdateRechnung, Person, Correspondent } from '../types'
 
 interface Props {
@@ -326,7 +326,7 @@ function ReadView({ rechnung, personen, correspondents, onEdit }: {
 
 // ─── Main Slider ──────────────────────────────────────────────────────────────
 
-type Tab = 'details' | 'anhaenge' | 'antraege' | 'aktivitaet'
+type Tab = 'details' | 'belege' | 'antraege' | 'aktivitaet'
 
 export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, onKopieren }: Props) {
   const qc = useQueryClient()
@@ -379,7 +379,7 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'details',   label: 'Details' },
-    { key: 'anhaenge',  label: 'Anhänge' },
+    { key: 'belege',    label: 'Belege' },
     { key: 'antraege',  label: 'Anträge' },
     { key: 'aktivitaet',label: 'Protokoll' },
   ]
@@ -509,9 +509,9 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
               onEdit={() => setEditing(true)}
             />
           )
-        ) : tab === 'anhaenge' ? (
+        ) : tab === 'belege' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
-            <AnhangUpload rechnungId={rechnung.id} referenzNr={rechnung.referenz_nr} />
+            <BelegReferenzListe mode="rechnung" id={rechnung.id} thumbnailView />
           </div>
         ) : tab === 'antraege' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>

@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM rust:latest AS builder
+FROM rust:bookworm AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
@@ -17,7 +17,7 @@ RUN touch src/main.rs && cargo build --release
 # Stage 2: Runtime
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates libssl3 libsqlite3-0 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libssl3 libsqlite3-0 tesseract-ocr tesseract-ocr-deu poppler-utils && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

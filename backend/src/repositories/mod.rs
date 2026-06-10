@@ -1,4 +1,5 @@
 pub mod aktivitaet;
+pub mod belege;
 pub mod anhaenge;
 pub mod bescheid_anhaenge;
 pub mod benutzer;

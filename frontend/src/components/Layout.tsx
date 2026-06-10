@@ -11,7 +11,9 @@ const NAV_ITEMS = [
   { to: '/beihilfe-antraege',  label: 'Anträge' },
   { to: '/auswertung',         label: 'Auswertung' },
   { to: '/aktivitaetslog',     label: 'Protokoll' },
+  { to: '/belege',             label: 'Belege' },
   { to: '/stammdaten',         label: 'Stammdaten' },
+  { to: '/ueber',              label: 'Über' },
 ]
 
 export default function Layout() {

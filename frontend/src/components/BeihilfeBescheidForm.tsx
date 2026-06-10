@@ -7,7 +7,6 @@ import {
 } from '../api/beihilfe_bescheide'
 import { getConfig } from '../api/config'
 import { verarbeiteBescheidPDF, type RechnungMapping, type N8nExtrahiertePosition } from '../api/n8n'
-import BescheidAnhangUpload from './BescheidAnhangUpload'
 import type {
   BeihilfeBescheid, BescheidPosition, Rechnung, Person,
   CreateBeihilfeBescheid, UpdateBeihilfeBescheid, UpdateBescheidPosition,
@@ -368,18 +367,12 @@ function BescheidKarte({ antragId, b, antragRechnungen, rechnungMap, personMap, 
             </select>
           )}
 
-          {/* Footer: document + delete */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', marginBottom: 7 }}>
-                BESCHEID-DOKUMENT
-              </div>
-              <BescheidAnhangUpload antragId={antragId} bescheidId={b.id} />
-            </div>
+          {/* Footer: delete */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               onClick={() => confirm('Bescheid löschen?') && onDelete(b.id)}
               disabled={deleting}
-              style={{ fontSize: 11, color: 'var(--rose)', cursor: 'pointer', background: 'none', border: 'none', paddingTop: 2, flexShrink: 0 }}
+              style={{ fontSize: 11, color: 'var(--rose)', cursor: 'pointer', background: 'none', border: 'none' }}
             >
               Löschen
             </button>

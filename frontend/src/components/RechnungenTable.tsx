@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Settings } from 'lucide-react'
 import type { Rechnung, Person, Correspondent } from '../types'
 import StatusBadge from './StatusBadge'
-import AnhangUpload from './AnhangUpload'
+import BelegReferenzListe from './BelegReferenzListe'
 import { getZahlungszielStatus } from '../utils/aufgabenBuckets'
 
 interface Props {
@@ -563,11 +563,11 @@ export default function RechnungenTable({
                     </td>
                   </tr>
 
-                  {/* Anhang-Expandier-Zeile */}
+                  {/* Beleg-Expandier-Zeile */}
                   {anhangExpandedId === r.id && (
                     <tr style={{ background: 'var(--surface-alt)' }}>
                       <td colSpan={20} style={{ padding: '12px 24px' }}>
-                        <AnhangUpload rechnungId={r.id} referenzNr={r.referenz_nr} compact />
+                        <BelegReferenzListe mode="rechnung" id={r.id} />
                       </td>
                     </tr>
                   )}

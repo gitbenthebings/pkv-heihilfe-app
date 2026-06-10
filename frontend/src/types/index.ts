@@ -171,13 +171,61 @@ export interface BreIndikator {
   person_name: string
   bre_schwelle: number
   pkv_offen: number
+  pkv_eingereicht: number
   bre_spielraum: number
+}
+
+export interface PipelineStageOffen {
+  brutto: number
+  voraussichtlich: number
+  anzahl: number
+}
+
+export interface PipelineStageAbgeschlossen {
+  tatsaechlich: number
+  anzahl: number
+}
+
+export interface PipelineData {
+  einreichbar: PipelineStageOffen
+  eingereicht: PipelineStageOffen
+  erstattet: PipelineStageAbgeschlossen
+  abgelehnt: PipelineStageAbgeschlossen
+}
+
+export interface BescheidSummary {
+  id: string
+  antrag_id: string
+  referenz_nr: number
+  antrag_typ: 'beihilfe' | 'pkv'
+  stelle: string | null
+  bescheid_datum: string
+  ws: boolean
+  overridden: boolean
+  erstattet: number
+  abgelehnt: number
+}
+
+export interface OffenerAntragSummary {
+  id: string
+  nr: string
+  titel: string | null
+  typ: 'beihilfe' | 'pkv'
+  status: string
+  anzahl: number
+  betrag: number
 }
 
 export interface DashboardData {
   kanban: KanbanBoard
   finanzen: FinanzOverview
   bre: BreIndikator[]
+  benutzer_name: string
+  aktuelles_jahr: number
+  beihilfe_pipeline: PipelineData
+  pkv_pipeline: PipelineData
+  letzte_bescheide: BescheidSummary[]
+  offene_antraege: OffenerAntragSummary[]
 }
 
 export interface Anhang {
@@ -194,6 +242,37 @@ export interface BescheidAnhang {
   dateiname: string
   groesse: number
   hochgeladen_am: string
+}
+
+export type BelegTyp = 'rechnung' | 'erstbescheid' | 'widerspruchsbescheid' | 'rezept' | 'ueberweisung' | 'sonstiges'
+
+export interface Beleg {
+  id: string
+  dateiname: string
+  bezeichnung: string | null
+  groesse: number
+  datum: string | null
+  eingangsdatum: string | null
+  typ: BelegTyp | null
+  aktenzeichen: string | null
+  betrag: number | null    // Euro
+  aussteller: string | null
+  notiz: string | null
+  hochgeladen_am: string
+  has_thumbnail: boolean
+  ocr_text: string | null
+  ocr_status: 'done' | 'failed' | 'unavailable' | null
+}
+
+export interface UpdateBeleg {
+  bezeichnung?: string | null
+  datum?: string | null
+  eingangsdatum?: string | null
+  typ?: BelegTyp | null
+  aktenzeichen?: string | null
+  betrag?: number | null
+  aussteller?: string | null
+  notiz?: string | null
 }
 
 export type BulkAction = 'bezahlt' | 'beihilfe_eingereicht' | 'pkv_eingereicht' | 'archivieren' | 'dearchivieren'
