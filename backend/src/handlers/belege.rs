@@ -203,6 +203,25 @@ pub async fn upload(
     )
     .await?;
 
+    // Thumbnail im Hintergrund generieren (wenn keines mitgesendet wurde)
+    if rel_thumb.is_none() {
+        let db_clone = state.db.clone();
+        let pdf_path_clone = abs_pfad.clone();
+        let id_clone = file_id.clone();
+        let thumb_abs = state.uploads_dir.join(format!("belege/{file_id}_thumb.jpg"));
+        let thumb_rel = format!("belege/{file_id}_thumb.jpg");
+        tokio::spawn(async move {
+            if crate::services::thumbnail::generate(&pdf_path_clone, &thumb_abs)
+                .await
+                .is_ok()
+            {
+                let _ =
+                    repositories::belege::update_thumbnail(&db_clone, &id_clone, &thumb_rel)
+                        .await;
+            }
+        });
+    }
+
     // OCR im Hintergrund starten
     {
         let db_clone = state.db.clone();

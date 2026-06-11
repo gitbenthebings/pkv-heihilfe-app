@@ -5,4 +5,5 @@ pub mod export;
 pub mod gdrive;
 pub mod ocr;
 pub mod paperless;
+pub mod thumbnail;
 pub mod rechnungen;

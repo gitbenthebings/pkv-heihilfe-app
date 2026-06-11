@@ -163,6 +163,15 @@ pub async fn delete(db: &Db, id: &str, mandant_id: &str) -> Result<Beleg, AppErr
     }
 }
 
+pub async fn update_thumbnail(db: &Db, id: &str, thumbnail_pfad: &str) -> Result<(), AppError> {
+    sqlx::query("UPDATE beleg SET thumbnail_pfad = ? WHERE id = ?")
+        .bind(thumbnail_pfad)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 pub async fn update_ocr(
     db: &Db,
     id: &str,

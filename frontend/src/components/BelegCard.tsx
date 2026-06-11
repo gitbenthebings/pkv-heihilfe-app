@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   deleteBeleg, updateBeleg, fetchBelegThumbnailBlob, fetchBelegBlob,
 } from '../api/belege'
 import { TYP_LABELS } from './BelegeUpload'
+import AusstellerSelect, { isBescheidTyp, isLeistungserbringerTyp } from './AusstellerSelect'
+import { useToast } from '../context/ToastContext'
 import type { Beleg, BelegTyp } from '../types'
 
 interface Props {
@@ -34,14 +36,6 @@ function formatEuro(v: number): string {
   return v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
 }
 
-const isBescheidTyp = (t: BelegTyp | null) => t === 'erstbescheid' || t === 'widerspruchsbescheid'
-const isLeistungserbringerTyp = (t: BelegTyp | null) => t === 'rechnung' || t === 'rezept' || t === 'ueberweisung'
-
-function ausstellerLabel(t: BelegTyp | null): string {
-  if (isBescheidTyp(t)) return 'Aussteller (Behörde / PKV)'
-  if (isLeistungserbringerTyp(t)) return 'Leistungserbringer'
-  return 'Aussteller'
-}
 
 const inputStyle: React.CSSProperties = {
   fontSize: 12, padding: '4px 6px',
@@ -51,6 +45,9 @@ const inputStyle: React.CSSProperties = {
 
 export default function BelegCard({ beleg, onDeleted }: Props) {
   const qc = useQueryClient()
+  const { showToast } = useToast()
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pendingDelete, setPendingDelete] = useState(false)
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [opening, setOpening] = useState(false)
@@ -79,6 +76,9 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beleg.id, beleg.has_thumbnail])
 
+  const displayName = beleg.bezeichnung || beleg.dateiname
+  const isBescheid = isBescheidTyp(beleg.typ)
+
   const deleteMut = useMutation({
     mutationFn: () => deleteBeleg(beleg.id),
     onSuccess: () => {
@@ -86,6 +86,18 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
       onDeleted?.()
     },
   })
+
+  const handleDelete = () => {
+    setPendingDelete(true)
+    deleteTimerRef.current = setTimeout(() => deleteMut.mutate(), 5000)
+    showToast(`"${displayName}" wird gelöscht`, {
+      label: 'Rückgängig',
+      onClick: () => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
+        setPendingDelete(false)
+      },
+    })
+  }
 
   const saveMut = useMutation({
     mutationFn: () => updateBeleg(beleg.id, {
@@ -120,9 +132,6 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
     }
   }
 
-  const displayName = beleg.bezeichnung || beleg.dateiname
-  const isBescheid = isBescheidTyp(beleg.typ)
-
   return (
     <div style={{
       background: 'var(--surface)',
@@ -131,6 +140,9 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
+      opacity: pendingDelete ? 0.35 : 1,
+      pointerEvents: pendingDelete ? 'none' : undefined,
+      transition: 'opacity 0.2s',
     }}>
       {/* Thumbnail */}
       <div onClick={handleOpen} style={{
@@ -159,7 +171,14 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
         {editing ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {/* Typ */}
-            <select value={typ} onChange={e => setTyp(e.target.value as BelegTyp | '')} style={inputStyle}>
+            <select value={typ} onChange={e => {
+              const newTyp = e.target.value as BelegTyp | ''
+              if (isLeistungserbringerTyp(typ) !== isLeistungserbringerTyp(newTyp) ||
+                  isBescheidTyp(typ) !== isBescheidTyp(newTyp)) {
+                setAussteller('')
+              }
+              setTyp(newTyp)
+            }} style={inputStyle}>
               <option value="">– kein Typ –</option>
               {(Object.entries(TYP_LABELS) as [BelegTyp, string][]).map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>
@@ -169,8 +188,7 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
             <input value={bezeichnung} onChange={e => setBezeichnung(e.target.value)}
               placeholder="Bezeichnung" style={inputStyle} />
             {/* Aussteller */}
-            <input value={aussteller} onChange={e => setAussteller(e.target.value)}
-              placeholder={ausstellerLabel(typ as BelegTyp | null)} style={inputStyle} />
+            <AusstellerSelect typ={typ} value={aussteller} onChange={setAussteller} style={inputStyle} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
               <input type="date" value={datum} onChange={e => setDatum(e.target.value)}
                 title={isBescheidTyp(typ as BelegTyp) ? 'Bescheid-Datum' : 'Belegdatum'} style={inputStyle} />
@@ -217,7 +235,7 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
                 <button onClick={() => setEditing(true)}
                   style={{ fontSize: 11, padding: '2px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-subtle)' }}
                   title="Bearbeiten">✎</button>
-                <button onClick={() => { if (confirm(`"${displayName}" wirklich löschen?`)) deleteMut.mutate() }}
+                <button onClick={handleDelete}
                   disabled={deleteMut.isPending}
                   style={{ fontSize: 13, lineHeight: 1, padding: '2px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-subtle)', opacity: deleteMut.isPending ? 0.5 : 1 }}
                   title="Löschen">×</button>

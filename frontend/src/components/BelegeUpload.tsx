@@ -4,6 +4,7 @@ import { uploadBeleg } from '../api/belege'
 import { getConfig } from '../api/config'
 import { canvasesToPdf, fileToGrayscalePdf } from '../utils/imageToGrayscalePdf'
 import ScanEditor from './ScanEditor'
+import AusstellerSelect, { isLeistungserbringerTyp, isBescheidTyp } from './AusstellerSelect'
 import type { BelegTyp } from '../types'
 
 interface Props {
@@ -21,7 +22,6 @@ export const TYP_LABELS: Record<BelegTyp, string> = {
   sonstiges: 'Sonstiges',
 }
 
-const isBescheidTyp = (t: BelegTyp | '') => t === 'erstbescheid' || t === 'widerspruchsbescheid'
 
 const btnStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
@@ -177,7 +177,7 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
   }
 
   const isBescheid = isBescheidTyp(typ)
-  const isLeistungserbringer = typ === 'rechnung' || typ === 'rezept' || typ === 'ueberweisung'
+  const isLeistungserbringer = isLeistungserbringerTyp(typ)
   const betragLabel = isBescheid ? 'Erstattungsbetrag (€)' : 'Betrag (€)'
   const datumLabel = isBescheid ? 'Bescheid-Datum' : 'Belegdatum'
   const ausstellerLabel = isBescheid
@@ -185,6 +185,17 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
     : isLeistungserbringer
       ? 'Leistungserbringer'
       : 'Aussteller'
+
+  const handleTypChange = (newTyp: BelegTyp | '') => {
+    const wasLeistungserbringer = isLeistungserbringerTyp(typ)
+    const wasBescheid = isBescheidTyp(typ)
+    const nowLeistungserbringer = isLeistungserbringerTyp(newTyp)
+    const nowBescheid = isBescheidTyp(newTyp)
+    if (wasLeistungserbringer !== nowLeistungserbringer || wasBescheid !== nowBescheid) {
+      setAussteller('')
+    }
+    setTyp(newTyp)
+  }
 
   // Metadata form (shown after file is staged)
   if (pendingFile) {
@@ -196,7 +207,7 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
 
           {/* Typ – first, drives conditional fields */}
           <FormField label="Typ">
-            <select value={typ} onChange={e => setTyp(e.target.value as BelegTyp | '')} style={inputStyle}>
+            <select value={typ} onChange={e => handleTypChange(e.target.value as BelegTyp | '')} style={inputStyle}>
               <option value="">– Kein Typ –</option>
               {(Object.entries(TYP_LABELS) as [BelegTyp, string][]).map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>
@@ -206,8 +217,7 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
 
           {/* Aussteller */}
           <FormField label={ausstellerLabel}>
-            <input value={aussteller} onChange={e => setAussteller(e.target.value)}
-              placeholder="z. B. BVA, HUK Coburg, Dr. Müller" style={inputStyle} />
+            <AusstellerSelect typ={typ} value={aussteller} onChange={setAussteller} style={inputStyle} />
           </FormField>
 
           {/* Bezeichnung – full width */}

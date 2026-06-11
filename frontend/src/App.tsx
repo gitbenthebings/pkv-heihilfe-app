@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import { JahrProvider } from './context/JahrContext'
+import { ToastProvider } from './context/ToastContext'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import RechnungenPage from './pages/RechnungenPage'
@@ -22,6 +23,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <JahrProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -46,6 +48,7 @@ export default function App() {
           </Route>
         </Routes>
       </JahrProvider>
+      </ToastProvider>
     </BrowserRouter>
   )
 }

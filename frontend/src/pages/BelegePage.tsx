@@ -85,6 +85,10 @@ export default function BelegePage() {
       datum_von: datumVon || undefined,
       datum_bis: datumBis || undefined,
     }),
+    refetchInterval: (query) => {
+      const items = query.state.data as import('../types').Beleg[] | undefined
+      return items?.some((b: import('../types').Beleg) => !b.has_thumbnail || b.ocr_status === null) ? 4000 : false
+    },
   })
 
   return (
