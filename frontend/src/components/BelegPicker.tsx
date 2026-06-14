@@ -10,11 +10,6 @@ interface Props {
   onCancel: () => void
 }
 
-function formatDate(d: string): string {
-  const [y, m, day] = d.split('-')
-  return `${day}.${m}.${y}`
-}
-
 export default function BelegPicker({ excludeIds = [], onSelect, onCancel }: Props) {
   const [q, setQ] = useState('')
 
@@ -99,7 +94,6 @@ export default function BelegPicker({ excludeIds = [], onSelect, onCancel }: Pro
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 8, marginTop: 2 }}>
                   {b.typ && <span>{TYP_LABELS[b.typ]}</span>}
-                  {b.datum && <span>{formatDate(b.datum)}</span>}
                   {b.notiz && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notiz}</span>}
                 </div>
               </div>

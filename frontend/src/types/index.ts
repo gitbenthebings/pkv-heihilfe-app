@@ -246,33 +246,43 @@ export interface BescheidAnhang {
 
 export type BelegTyp = 'rechnung' | 'erstbescheid' | 'widerspruchsbescheid' | 'rezept' | 'ueberweisung' | 'sonstiges'
 
+export interface LinkedRechnung {
+  id: string
+  referenz_nr: number | null
+  betrag: number        // Cent
+  datum: string
+  leistungserbringer: string
+  person: string
+}
+
+export interface LinkedAntrag {
+  id: string
+  referenz_nr: number
+  typ: 'beihilfe' | 'pkv'
+  stelle: string | null
+}
+
 export interface Beleg {
   id: string
   dateiname: string
   bezeichnung: string | null
   groesse: number
-  datum: string | null
-  eingangsdatum: string | null
   typ: BelegTyp | null
-  aktenzeichen: string | null
-  betrag: number | null    // Euro
-  aussteller: string | null
   notiz: string | null
+  datum: string | null
   hochgeladen_am: string
   has_thumbnail: boolean
   ocr_text: string | null
   ocr_status: 'done' | 'failed' | 'unavailable' | null
+  linked_rechnungen: LinkedRechnung[]
+  linked_antraege: LinkedAntrag[]
 }
 
 export interface UpdateBeleg {
   bezeichnung?: string | null
-  datum?: string | null
-  eingangsdatum?: string | null
   typ?: BelegTyp | null
-  aktenzeichen?: string | null
-  betrag?: number | null
-  aussteller?: string | null
   notiz?: string | null
+  datum?: string | null
 }
 
 export type BulkAction = 'bezahlt' | 'beihilfe_eingereicht' | 'pkv_eingereicht' | 'archivieren' | 'dearchivieren'

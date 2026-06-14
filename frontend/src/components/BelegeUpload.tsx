@@ -4,7 +4,6 @@ import { uploadBeleg } from '../api/belege'
 import { getConfig } from '../api/config'
 import { canvasesToPdf, fileToGrayscalePdf } from '../utils/imageToGrayscalePdf'
 import ScanEditor from './ScanEditor'
-import AusstellerSelect, { isLeistungserbringerTyp, isBescheidTyp } from './AusstellerSelect'
 import type { BelegTyp } from '../types'
 
 interface Props {
@@ -22,7 +21,6 @@ export const TYP_LABELS: Record<BelegTyp, string> = {
   sonstiges: 'Sonstiges',
 }
 
-
 const btnStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
   fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-alt)',
@@ -33,15 +31,6 @@ const inputStyle: React.CSSProperties = {
   fontSize: 12, padding: '5px 8px',
   border: '1px solid var(--border)', borderRadius: 5,
   background: 'var(--surface)', color: 'var(--text)',
-}
-
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <label style={{ fontSize: 11, color: 'var(--text-subtle)' }}>{label}</label>
-      {children}
-    </div>
-  )
 }
 
 export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: Props) {
@@ -59,13 +48,9 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
   const [dragOver, setDragOver] = useState(false)
 
   const [bezeichnung, setBezeichnung] = useState('')
-  const [datum, setDatum] = useState('')
-  const [eingangsdatum, setEingangsdatum] = useState('')
   const [typ, setTyp] = useState<BelegTyp | ''>('')
-  const [aktenzeichen, setAktenzeichen] = useState('')
-  const [betrag, setBetrag] = useState('')
-  const [aussteller, setAussteller] = useState('')
   const [notiz, setNotiz] = useState('')
+  const [datum, setDatum] = useState('')
 
   const [pendingFile, setPendingFile] = useState<{ pdf: File; thumb?: Blob } | null>(null)
 
@@ -73,31 +58,22 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
     getConfig().then(c => setMultipageEnabled(c.multipage_scan))
   }, [])
 
-  const resetMeta = () => {
-    setBezeichnung(''); setDatum(''); setEingangsdatum(''); setTyp('')
-    setAktenzeichen(''); setBetrag(''); setAussteller(''); setNotiz('')
-  }
-
   const doUpload = async (pdf: File, thumb?: Blob) => {
     setUploading(true)
     setError(null)
     try {
       await uploadBeleg(pdf, thumb, {
         bezeichnung: bezeichnung || undefined,
-        datum: datum || undefined,
-        eingangsdatum: eingangsdatum || undefined,
         typ: (typ || undefined) as BelegTyp | undefined,
-        aktenzeichen: aktenzeichen || undefined,
-        betrag: betrag ? parseFloat(betrag) : undefined,
-        aussteller: aussteller || undefined,
         notiz: notiz || undefined,
+        datum: datum || undefined,
       })
       for (const key of queryKeys) {
         qc.invalidateQueries({ queryKey: key })
       }
       qc.invalidateQueries({ queryKey: ['belege'] })
       setPendingFile(null)
-      resetMeta()
+      setBezeichnung(''); setTyp(''); setNotiz(''); setDatum('')
       onUploaded?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload fehlgeschlagen')
@@ -126,7 +102,9 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
     setError(null)
     try {
       const pdf = await fileToGrayscalePdf(file)
+      const name = file.name.replace(/\.[^.]+$/, '')
       setPendingFile({ pdf: new File([pdf], file.name.replace(/\.[^.]+$/, '.pdf'), { type: 'application/pdf' }) })
+      setBezeichnung(name)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Datei konnte nicht verarbeitet werden')
     } finally {
@@ -176,88 +154,38 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
     handleFileInput(e.dataTransfer.files)
   }
 
-  const isBescheid = isBescheidTyp(typ)
-  const isLeistungserbringer = isLeistungserbringerTyp(typ)
-  const betragLabel = isBescheid ? 'Erstattungsbetrag (€)' : 'Betrag (€)'
-  const datumLabel = isBescheid ? 'Bescheid-Datum' : 'Belegdatum'
-  const ausstellerLabel = isBescheid
-    ? 'Aussteller (Behörde / PKV)'
-    : isLeistungserbringer
-      ? 'Leistungserbringer'
-      : 'Aussteller'
-
-  const handleTypChange = (newTyp: BelegTyp | '') => {
-    const wasLeistungserbringer = isLeistungserbringerTyp(typ)
-    const wasBescheid = isBescheidTyp(typ)
-    const nowLeistungserbringer = isLeistungserbringerTyp(newTyp)
-    const nowBescheid = isBescheidTyp(newTyp)
-    if (wasLeistungserbringer !== nowLeistungserbringer || wasBescheid !== nowBescheid) {
-      setAussteller('')
-    }
-    setTyp(newTyp)
-  }
-
-  // Metadata form (shown after file is staged)
   if (pendingFile) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>Metadaten (optional)</p>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+          <strong>{pendingFile.pdf.name}</strong> – bereit zum Hochladen
+        </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-
-          {/* Typ – first, drives conditional fields */}
-          <FormField label="Typ">
-            <select value={typ} onChange={e => handleTypChange(e.target.value as BelegTyp | '')} style={inputStyle}>
-              <option value="">– Kein Typ –</option>
-              {(Object.entries(TYP_LABELS) as [BelegTyp, string][]).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </FormField>
-
-          {/* Aussteller */}
-          <FormField label={ausstellerLabel}>
-            <AusstellerSelect typ={typ} value={aussteller} onChange={setAussteller} style={inputStyle} />
-          </FormField>
-
-          {/* Bezeichnung – full width */}
-          <FormField label="Bezeichnung">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <label style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Typ</label>
+              <select value={typ} onChange={e => setTyp(e.target.value as BelegTyp | '')} style={inputStyle}>
+                <option value="">– Kein Typ –</option>
+                {(Object.entries(TYP_LABELS) as [BelegTyp, string][]).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <label style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Datum</label>
+              <input type="date" value={datum} onChange={e => setDatum(e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <label style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Bezeichnung</label>
             <input value={bezeichnung} onChange={e => setBezeichnung(e.target.value)}
-              placeholder={pendingFile.pdf.name} style={{ ...inputStyle, gridColumn: '1 / -1' }} />
-          </FormField>
-
-          {/* Datum */}
-          <FormField label={datumLabel}>
-            <input type="date" value={datum} onChange={e => setDatum(e.target.value)} style={inputStyle} />
-          </FormField>
-
-          {/* Eingangsdatum – nur für Bescheide */}
-          {isBescheid && (
-            <FormField label="Eingangsdatum">
-              <input type="date" value={eingangsdatum} onChange={e => setEingangsdatum(e.target.value)} style={inputStyle} />
-            </FormField>
-          )}
-
-          {/* Aktenzeichen – nur für Bescheide */}
-          {isBescheid && (
-            <FormField label="Aktenzeichen">
-              <input value={aktenzeichen} onChange={e => setAktenzeichen(e.target.value)}
-                placeholder="z. B. BVA-2026-12345" style={inputStyle} />
-            </FormField>
-          )}
-
-          {/* Betrag */}
-          <FormField label={betragLabel}>
-            <input type="number" step="0.01" min="0" value={betrag}
-              onChange={e => setBetrag(e.target.value)} style={inputStyle} />
-          </FormField>
-
-          {/* Notiz – full width */}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <FormField label="Notiz">
-              <textarea value={notiz} onChange={e => setNotiz(e.target.value)} rows={2}
-                style={{ ...inputStyle, resize: 'vertical', width: '100%', boxSizing: 'border-box' }} />
-            </FormField>
+              placeholder={pendingFile.pdf.name} style={inputStyle} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <label style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Notiz</label>
+            <textarea value={notiz} onChange={e => setNotiz(e.target.value)} rows={2}
+              style={{ ...inputStyle, resize: 'vertical' }} />
           </div>
         </div>
 
@@ -301,7 +229,6 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
         <input ref={fileRef} type="file" accept="image/*,application/pdf"
           style={{ display: 'none' }} onChange={e => handleFileInput(e.target.files)} />
 
-        {/* Drop-Zone */}
         <div
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
@@ -330,7 +257,6 @@ export default function BelegeUpload({ onUploaded, onCancel, queryKeys = [] }: P
             {dragOver ? 'Datei ablegen' : 'PDF / Bild hierher ziehen oder klicken'}
           </span>
 
-          {/* Inline-Buttons */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}
             onClick={e => e.stopPropagation()}>
             <button onClick={() => cameraRef.current?.click()} disabled={uploading}

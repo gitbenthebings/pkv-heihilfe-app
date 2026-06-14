@@ -10,6 +10,7 @@ pub struct FrontendConfig {
     pub gdrive_configured: bool,
     pub n8n_webhook_url: Option<String>,
     pub n8n_rechnung_webhook_url: Option<String>,
+    pub has_logo: bool,
 }
 
 /// Öffentlicher Endpunkt – kein JWT erforderlich.
@@ -38,11 +39,14 @@ pub async fn get(State(state): State<AppState>) -> Json<FrontendConfig> {
         .ok()
         .flatten();
 
+    let has_logo = super::logo::has_logo(&state.db, &state.uploads_dir).await;
+
     Json(FrontendConfig {
         multipage_scan: state.multipage_scan,
         paperless_ngx_url: state.paperless_ngx_url.clone(),
         gdrive_configured,
         n8n_webhook_url,
         n8n_rechnung_webhook_url,
+        has_logo,
     })
 }

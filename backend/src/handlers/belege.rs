@@ -56,13 +56,9 @@ pub async fn upload(
     let mut pdf_data: Option<(Vec<u8>, String)> = None;   // (bytes, dateiname)
     let mut thumb_data: Option<Vec<u8>> = None;
     let mut bezeichnung: Option<String> = None;
-    let mut datum: Option<String> = None;
-    let mut eingangsdatum: Option<String> = None;
     let mut typ: Option<String> = None;
-    let mut aktenzeichen: Option<String> = None;
-    let mut betrag: Option<f64> = None;
-    let mut aussteller: Option<String> = None;
     let mut notiz: Option<String> = None;
+    let mut datum: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -110,15 +106,6 @@ pub async fn upload(
                     bezeichnung = Some(v);
                 }
             }
-            "datum" => {
-                let v = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if !v.is_empty() {
-                    datum = Some(v);
-                }
-            }
             "typ" => {
                 let v = field
                     .text()
@@ -127,24 +114,6 @@ pub async fn upload(
                 if !v.is_empty() {
                     typ = Some(v);
                 }
-            }
-            "eingangsdatum" => {
-                let v = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if !v.is_empty() { eingangsdatum = Some(v); }
-            }
-            "aktenzeichen" => {
-                let v = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if !v.is_empty() { aktenzeichen = Some(v); }
-            }
-            "betrag" => {
-                let v = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if !v.is_empty() {
-                    betrag = v.parse::<f64>().ok();
-                }
-            }
-            "aussteller" => {
-                let v = field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
-                if !v.is_empty() { aussteller = Some(v); }
             }
             "notiz" => {
                 let v = field
@@ -155,8 +124,16 @@ pub async fn upload(
                     notiz = Some(v);
                 }
             }
+            "datum" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+                if !v.is_empty() {
+                    datum = Some(v);
+                }
+            }
             _ => {
-                // consume unknown fields
                 let _ = field.bytes().await;
             }
         }
@@ -193,13 +170,9 @@ pub async fn upload(
         rel_thumb.as_deref(),
         pdf_bytes.len() as i64,
         bezeichnung.as_deref(),
-        datum.as_deref(),
-        eingangsdatum.as_deref(),
         typ.as_deref(),
-        aktenzeichen.as_deref(),
-        betrag,
-        aussteller.as_deref(),
         notiz.as_deref(),
+        datum.as_deref(),
     )
     .await?;
 
@@ -222,12 +195,14 @@ pub async fn upload(
         });
     }
 
-    // OCR im Hintergrund starten
+    // OCR im Hintergrund starten (Semaphore begrenzt auf 2 gleichzeitige Jobs)
     {
         let db_clone = state.db.clone();
         let path_clone = abs_pfad.clone();
         let id_clone = file_id.clone();
+        let sem = state.ocr_semaphore.clone();
         tokio::spawn(async move {
+            let _permit = sem.acquire().await;
             match crate::services::ocr::extract_text(&path_clone).await {
                 Ok(text) => {
                     let _ = repositories::belege::update_ocr(
@@ -315,6 +290,50 @@ pub async fn serve_datei(
     );
 
     Ok((StatusCode::OK, headers, data))
+}
+
+pub async fn retrigger_ocr(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let beleg = repositories::belege::get(&state.db, &id, &auth.mandant_id).await?;
+
+    // Status auf NULL zurücksetzen (= läuft)
+    repositories::belege::update_ocr(&state.db, &id, "", None).await.ok();
+    sqlx::query("UPDATE beleg SET ocr_status = NULL, ocr_text = NULL WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await?;
+
+    let db_clone = state.db.clone();
+    let path_clone = state.uploads_dir.join(&beleg.pfad);
+    let id_clone = id.clone();
+    let sem = state.ocr_semaphore.clone();
+    tokio::spawn(async move {
+        let _permit = sem.acquire().await;
+        match crate::services::ocr::extract_text(&path_clone).await {
+            Ok(text) => {
+                let _ = repositories::belege::update_ocr(
+                    &db_clone,
+                    &id_clone,
+                    crate::services::ocr::STATUS_DONE,
+                    if text.is_empty() { None } else { Some(text.as_str()) },
+                )
+                .await;
+            }
+            Err(status) => {
+                let s = if status.starts_with(crate::services::ocr::STATUS_UNAVAILABLE) {
+                    crate::services::ocr::STATUS_UNAVAILABLE
+                } else {
+                    crate::services::ocr::STATUS_FAILED
+                };
+                let _ = repositories::belege::update_ocr(&db_clone, &id_clone, s, None).await;
+            }
+        }
+    });
+
+    Ok(StatusCode::ACCEPTED)
 }
 
 pub async fn serve_thumbnail(

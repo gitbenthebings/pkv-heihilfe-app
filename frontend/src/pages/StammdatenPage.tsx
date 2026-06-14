@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getBeihilfestellen, createBeihilfestelle, updateBeihilfestelle, deleteBeihilfestelle, addPersonToBeihilfestelle, removePersonFromBeihilfestelle } from '../api/beihilfestellen'
 import { getPkv, createPkv, updatePkv, deletePkv, addPersonToPkv, removePersonFromPkv } from '../api/pkv'
@@ -6,6 +6,7 @@ import { getPersonen, createPerson, updatePerson, deletePerson, getSatzHistorie,
 import { getCorrespondents, createCorrespondent, updateCorrespondent, deleteCorrespondent } from '../api/correspondents'
 import { getBenutzer, createBenutzer, updateBenutzer, changePasswort, deleteBenutzer } from '../api/benutzer'
 import { getEinstellungen, updateEinstellungen, testPaperlessConnection, testGdriveConnection } from '../api/einstellungen'
+import { uploadLogo, deleteLogo, LOGO_URL } from '../api/logo'
 import { getScanMaxDim, getScanJpegQuality, setScanMaxDim, setScanJpegQuality, DEFAULT_MAX_DIM, DEFAULT_JPEG_QUALITY } from '../utils/scanSettings'
 import type {
   Beihilfestelle, CreateBeihilfestelle, UpdateBeihilfestelle,
@@ -1142,8 +1143,106 @@ function EinstellungenTab() {
 
   const sectionStyle: React.CSSProperties = { background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', padding: 16 }
 
+  const [logoHasFile, setLogoHasFile] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoError, setLogoError] = useState<string | null>(null)
+  const logoInputRef = React.useRef<HTMLInputElement>(null)
+
+  // Prüfen ob Logo vorhanden
+  React.useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then(c => setLogoHasFile(!!c.has_logo)).catch(() => {})
+  }, [])
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.name.endsWith('.svg') && file.type !== 'image/svg+xml') {
+      setLogoError('Nur SVG-Dateien erlaubt'); return
+    }
+    setLogoUploading(true); setLogoError(null)
+    try {
+      await uploadLogo(file)
+      setLogoHasFile(true)
+      setSaveMsg('Logo gespeichert')
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : 'Fehler beim Upload')
+    } finally {
+      setLogoUploading(false)
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
+
+  const handleLogoDelete = async () => {
+    setLogoUploading(true); setLogoError(null)
+    try {
+      await deleteLogo()
+      setLogoHasFile(false)
+      setSaveMsg('Logo entfernt')
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : 'Fehler')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Logo */}
+      <div style={sectionStyle} className="space-y-3">
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Logo</h3>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          SVG-Datei – wird im Login und in der Navbar angezeigt.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          {logoHasFile && (
+            <div style={{
+              border: '1px solid var(--border)', borderRadius: 8,
+              padding: '8px 12px', background: 'var(--surface-alt)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              minWidth: 80, height: 48,
+            }}>
+              <img src={`${LOGO_URL}?t=${Date.now()}`} alt="Logo" style={{ maxHeight: 36, maxWidth: 160, objectFit: 'contain' }} />
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept=".svg,image/svg+xml"
+              style={{ display: 'none' }}
+              onChange={handleLogoUpload}
+            />
+            <button
+              onClick={() => logoInputRef.current?.click()}
+              disabled={logoUploading}
+              style={{
+                padding: '6px 14px', fontSize: 12, borderRadius: 6,
+                background: 'var(--primary)', color: '#fff', border: 'none',
+                cursor: logoUploading ? 'default' : 'pointer',
+                opacity: logoUploading ? 0.6 : 1,
+              }}
+            >
+              {logoUploading ? 'Wird hochgeladen…' : logoHasFile ? 'Logo ersetzen' : 'SVG hochladen'}
+            </button>
+            {logoHasFile && (
+              <button
+                onClick={handleLogoDelete}
+                disabled={logoUploading}
+                style={{
+                  padding: '6px 12px', fontSize: 12, borderRadius: 6,
+                  background: 'none', color: 'var(--rose)',
+                  border: '1px solid var(--rose)', cursor: 'pointer',
+                  opacity: logoUploading ? 0.5 : 1,
+                }}
+              >
+                Entfernen
+              </button>
+            )}
+          </div>
+        </div>
+        {logoError && <p style={{ fontSize: 12, color: 'var(--rose)', margin: 0 }}>{logoError}</p>}
+      </div>
+
       {/* Scan-Einstellungen */}
       <div style={sectionStyle} className="space-y-4">
         <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Scan-Einstellungen</h3>

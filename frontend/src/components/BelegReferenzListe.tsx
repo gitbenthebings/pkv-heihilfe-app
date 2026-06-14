@@ -11,31 +11,15 @@ import BelegeUpload from './BelegeUpload'
 import { TYP_LABELS } from './BelegeUpload'
 import type { Beleg, BelegTyp } from '../types'
 
+const isBescheidTyp = (t: BelegTyp | null) => t === 'erstbescheid' || t === 'widerspruchsbescheid'
+
 interface RechnungProps { mode: 'rechnung'; id: string; thumbnailView?: boolean }
 interface AntragProps  { mode: 'antrag';   id: string; antragTyp?: 'beihilfe' | 'pkv'; thumbnailView?: boolean }
 type Props = RechnungProps | AntragProps
 
-function formatDate(d: string): string {
-  const [y, m, day] = d.split('-')
-  return `${day}.${m}.${y}`
-}
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-function formatEuro(v: number): string {
-  return v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
-}
-
-const isBescheidTyp = (t: BelegTyp | null) => t === 'erstbescheid' || t === 'widerspruchsbescheid'
-const isLeistungserbringerTyp = (t: BelegTyp | null) => t === 'rechnung' || t === 'rezept' || t === 'ueberweisung'
-
-function ausstellerLabel(t: BelegTyp | null): string {
-  if (isBescheidTyp(t)) return 'Behörde / PKV'
-  if (isLeistungserbringerTyp(t)) return 'Leistungserbringer'
-  return 'Aussteller'
 }
 
 const TYP_COLORS: Record<BelegTyp, string> = {
@@ -125,48 +109,21 @@ function BelegThumbCard({
 
       {/* Info */}
       <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {/* Typ-Badge + Datum */}
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-          {beleg.typ && (
-            <span style={{
-              fontSize: 9, padding: '1px 5px', borderRadius: 8,
-              background: TYP_COLORS[beleg.typ] + '22',
-              color: TYP_COLORS[beleg.typ],
-              border: `1px solid ${TYP_COLORS[beleg.typ]}44`,
-              fontWeight: 600, whiteSpace: 'nowrap',
-            }}>
-              {TYP_LABELS[beleg.typ]}
-            </span>
-          )}
-          {beleg.datum && (
-            <span style={{ fontSize: 9, color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
-              {formatDate(beleg.datum)}
-            </span>
-          )}
-        </div>
-
-        {/* Bezeichnung / Dateiname */}
+        {beleg.typ && (
+          <span style={{
+            fontSize: 9, padding: '1px 5px', borderRadius: 8,
+            background: TYP_COLORS[beleg.typ] + '22',
+            color: TYP_COLORS[beleg.typ],
+            border: `1px solid ${TYP_COLORS[beleg.typ]}44`,
+            fontWeight: 600, whiteSpace: 'nowrap', alignSelf: 'flex-start',
+          }}>
+            {TYP_LABELS[beleg.typ]}
+          </span>
+        )}
         <span style={{
           fontSize: 11, fontWeight: 500, color: 'var(--text)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }} title={displayName}>{displayName}</span>
-
-        {/* Aussteller */}
-        {beleg.aussteller && (
-          <span style={{
-            fontSize: 10, color: 'var(--text-subtle)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }} title={`${ausstellerLabel(beleg.typ)}: ${beleg.aussteller}`}>
-            {beleg.aussteller}
-          </span>
-        )}
-
-        {/* Betrag */}
-        {beleg.betrag != null && (
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-            {beleg.betrag.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
-          </span>
-        )}
       </div>
     </div>
   )
@@ -192,10 +149,10 @@ function BescheidAusBeleg({ antragId, antragTyp, beleg, onDone, onCancel }: Besc
   const qc = useQueryClient()
   const label = antragTyp === 'pkv' ? 'Abrechnung' : 'Bescheid'
 
-  const [bDatum, setBDatum] = useState(beleg.datum ?? '')
-  const [bEingang, setBEingang] = useState(beleg.eingangsdatum ?? '')
-  const [bAktenzeichen, setBAktenzeichen] = useState(beleg.aktenzeichen ?? '')
-  const [bBetrag, setBBetrag] = useState(beleg.betrag != null ? String(beleg.betrag) : '')
+  const [bDatum, setBDatum] = useState('')
+  const [bEingang, setBEingang] = useState('')
+  const [bAktenzeichen, setBAktenzeichen] = useState('')
+  const [bBetrag, setBBetrag] = useState('')
   const [bTyp, setBTyp] = useState<'erstbescheid' | 'widerspruchsbescheid'>(
     beleg.typ === 'widerspruchsbescheid' ? 'widerspruchsbescheid' : 'erstbescheid'
   )
@@ -421,10 +378,7 @@ export default function BelegReferenzListe(props: Props) {
             {/* Meta row */}
             <div style={{ display: 'flex', gap: 8, fontSize: 10, color: 'var(--text-subtle)', flexWrap: 'wrap', paddingLeft: 21 }}>
               {b.typ && <span>{TYP_LABELS[b.typ]}</span>}
-              {b.aussteller && <span>{b.aussteller}</span>}
-              {b.datum && <span>{formatDate(b.datum)}</span>}
-              {b.aktenzeichen && <span>Az: {b.aktenzeichen}</span>}
-              {b.betrag != null && <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>{formatEuro(b.betrag)}</span>}
+              {b.notiz && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{b.notiz}</span>}
               <span style={{ marginLeft: 'auto' }}>{formatBytes(b.groesse)}</span>
             </div>
 

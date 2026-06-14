@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
 import { useJahr } from '../context/JahrContext'
 import GlobalSearch from './GlobalSearch'
+import { getConfig } from '../api/config'
+import { LOGO_URL } from '../api/logo'
 
 const NAV_ITEMS = [
   { to: '/dashboard',          label: 'Dashboard' },
@@ -19,10 +21,17 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { logout } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const fullBleed = pathname === '/belege'
   const { dark, toggle } = useTheme()
   const { jahr, setJahr, jahreOptionen } = useJahr()
   const [menuOpen, setMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [hasLogo, setHasLogo] = useState(false)
+
+  useEffect(() => {
+    getConfig().then(c => setHasLogo(!!c.has_logo))
+  }, [])
 
   // Ctrl+K / Cmd+K öffnet Suche
   useEffect(() => {
@@ -56,26 +65,36 @@ export default function Layout() {
 
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 28 }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: 7,
-              background: 'var(--primary-dim)',
-              border: '1px solid rgba(127,127,255,0.2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}>
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <rect x="1" y="1" width="5" height="6" rx="1.2" fill="var(--primary)" opacity="0.9"/>
-                <rect x="8" y="1" width="4" height="3.5" rx="1" fill="var(--primary)" opacity="0.55"/>
-                <rect x="1" y="9" width="11" height="3" rx="1" fill="var(--primary)" opacity="0.7"/>
-              </svg>
-            </div>
-            <span style={{
-              color: 'rgba(255,255,255,0.9)',
-              fontWeight: 700,
-              fontSize: 14,
-              letterSpacing: '-0.02em',
-              whiteSpace: 'nowrap',
-            }}>PKV-Abrechnung</span>
+            {hasLogo ? (
+              <img
+                src={LOGO_URL}
+                alt="Logo"
+                style={{ height: 28, maxWidth: 120, objectFit: 'contain' }}
+              />
+            ) : (
+              <>
+                <div style={{
+                  width: 24, height: 24, borderRadius: 7,
+                  background: 'var(--primary-dim)',
+                  border: '1px solid rgba(127,127,255,0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <rect x="1" y="1" width="5" height="6" rx="1.2" fill="var(--primary)" opacity="0.9"/>
+                    <rect x="8" y="1" width="4" height="3.5" rx="1" fill="var(--primary)" opacity="0.55"/>
+                    <rect x="1" y="9" width="11" height="3" rx="1" fill="var(--primary)" opacity="0.7"/>
+                  </svg>
+                </div>
+                <span style={{
+                  color: 'rgba(255,255,255,0.9)',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  letterSpacing: '-0.02em',
+                  whiteSpace: 'nowrap',
+                }}>PKV-Abrechnung</span>
+              </>
+            )}
           </div>
 
           {/* Desktop nav links */}
@@ -260,7 +279,10 @@ export default function Layout() {
       </nav>
 
       {/* ── Page content ── */}
-      <main className="px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+      <main
+        className={fullBleed ? '' : 'px-4 sm:px-6 lg:px-8 py-4 sm:py-6'}
+        style={fullBleed ? { height: 'calc(100vh - 46px)', overflow: 'hidden' } : undefined}
+      >
         <Outlet />
       </main>
 

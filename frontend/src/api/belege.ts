@@ -49,13 +49,9 @@ export async function getBelege(filter: BelegeFilter = {}): Promise<Beleg[]> {
 
 export interface BelegMeta {
   bezeichnung?: string
-  datum?: string
-  eingangsdatum?: string
   typ?: BelegTyp
-  aktenzeichen?: string
-  betrag?: number   // Euro
-  aussteller?: string
   notiz?: string
+  datum?: string
 }
 
 export async function uploadBeleg(file: File, thumbnail?: Blob, meta: BelegMeta = {}): Promise<Beleg> {
@@ -63,13 +59,9 @@ export async function uploadBeleg(file: File, thumbnail?: Blob, meta: BelegMeta 
   formData.append('file', file, file.name)
   if (thumbnail) formData.append('thumbnail', thumbnail, 'thumb.jpg')
   if (meta.bezeichnung) formData.append('bezeichnung', meta.bezeichnung)
-  if (meta.datum) formData.append('datum', meta.datum)
-  if (meta.eingangsdatum) formData.append('eingangsdatum', meta.eingangsdatum)
   if (meta.typ) formData.append('typ', meta.typ)
-  if (meta.aktenzeichen) formData.append('aktenzeichen', meta.aktenzeichen)
-  if (meta.betrag != null) formData.append('betrag', String(meta.betrag))
-  if (meta.aussteller) formData.append('aussteller', meta.aussteller)
   if (meta.notiz) formData.append('notiz', meta.notiz)
+  if (meta.datum) formData.append('datum', meta.datum)
 
   const res = await authFetch('/belege', { method: 'POST', body: formData })
   return res.json()
@@ -91,6 +83,10 @@ export async function updateBeleg(id: string, data: UpdateBeleg): Promise<Beleg>
 
 export async function deleteBeleg(id: string): Promise<void> {
   await authFetch(`/belege/${id}`, { method: 'DELETE' })
+}
+
+export async function retriggerOcr(id: string): Promise<void> {
+  await authFetch(`/belege/${id}/ocr`, { method: 'POST' })
 }
 
 export function getBelegDateiUrl(id: string): string {
