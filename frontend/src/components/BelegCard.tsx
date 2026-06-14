@@ -1,25 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  deleteBeleg, updateBeleg, fetchBelegThumbnailBlob, fetchBelegBlob,
-} from '../api/belege'
+import { deleteBeleg, fetchBelegThumbnailBlob } from '../api/belege'
 import { TYP_LABELS } from './BelegeUpload'
-import AusstellerSelect, { isBescheidTyp, isLeistungserbringerTyp } from './AusstellerSelect'
 import { useToast } from '../context/ToastContext'
 import type { Beleg, BelegTyp } from '../types'
 
 interface Props {
   beleg: Beleg
+  selected?: boolean
+  onOpenDetail: (id: string) => void
   onDeleted?: () => void
 }
 
-const TYP_COLORS: Record<BelegTyp, string> = {
-  rechnung: 'var(--teal)',
-  erstbescheid: 'var(--primary)',
-  widerspruchsbescheid: 'var(--amber)',
-  rezept: 'var(--emerald)',
-  ueberweisung: 'var(--violet)',
-  sonstiges: 'var(--text-subtle)',
+// Typ → CSS-Variable-Ton (matching design)
+const TYPE_TONE: Record<BelegTyp, string> = {
+  rechnung: 'amber',
+  erstbescheid: 'teal',
+  widerspruchsbescheid: 'rose',
+  rezept: 'green',
+  ueberweisung: 'blue',
+  sonstiges: 'purple',
 }
 
 function formatBytes(bytes: number): string {
@@ -27,41 +27,44 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function formatDate(d: string): string {
-  const [y, m, day] = d.split('-')
-  return `${day}.${m}.${y}`
+function DocThumb({ typ, height = 148 }: { typ: BelegTyp | null; height?: number }) {
+  const tone = typ ? TYPE_TONE[typ] : 'purple'
+  const lines = [100, 86, 92, 70, 96, 64, 88, 52, 90, 76, 84, 68, 94]
+  return (
+    <div style={{
+      position: 'relative', height, background: 'var(--surface-alt)',
+      overflow: 'hidden', display: 'flex', alignItems: 'flex-start',
+      justifyContent: 'center', paddingTop: 14,
+    }}>
+      <div style={{
+        width: '64%', height: height + 30,
+        background: 'var(--paper)',
+        borderRadius: '4px 4px 0 0',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+        padding: '12px 13px 0',
+        flexShrink: 0,
+      }}>
+        <div style={{ height: 4, width: '52%', background: `var(--${tone})`, borderRadius: 2, marginBottom: 4, opacity: 0.85 }} />
+        <div style={{ height: 3, width: '34%', background: `var(--${tone})`, borderRadius: 2, marginBottom: 9, opacity: 0.4 }} />
+        {lines.map((w, i) => (
+          <div key={i} style={{ height: 2.5, width: `${w}%`, background: 'var(--border)', borderRadius: 2, marginBottom: 5, opacity: i === 0 ? 0.85 : 0.5 }} />
+        ))}
+      </div>
+    </div>
+  )
 }
 
-function formatEuro(v: number): string {
-  return v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
-}
-
-
-const inputStyle: React.CSSProperties = {
-  fontSize: 12, padding: '4px 6px',
-  border: '1px solid var(--border)', borderRadius: 4,
-  background: 'var(--surface)', color: 'var(--text)',
-}
-
-export default function BelegCard({ beleg, onDeleted }: Props) {
+export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: Props) {
   const qc = useQueryClient()
   const { showToast } = useToast()
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pendingDelete, setPendingDelete] = useState(false)
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [opening, setOpening] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [hovered, setHovered] = useState(false)
 
-  // Edit state
-  const [bezeichnung, setBezeichnung] = useState(beleg.bezeichnung ?? '')
-  const [datum, setDatum] = useState(beleg.datum ?? '')
-  const [eingangsdatum, setEingangsdatum] = useState(beleg.eingangsdatum ?? '')
-  const [typ, setTyp] = useState<BelegTyp | ''>(beleg.typ ?? '')
-  const [aktenzeichen, setAktenzeichen] = useState(beleg.aktenzeichen ?? '')
-  const [betrag, setBetrag] = useState(beleg.betrag != null ? String(beleg.betrag) : '')
-  const [aussteller, setAussteller] = useState(beleg.aussteller ?? '')
-  const [notiz, setNotiz] = useState(beleg.notiz ?? '')
+  const displayName = beleg.bezeichnung || beleg.dateiname
+  const tone = beleg.typ ? TYPE_TONE[beleg.typ] : 'purple'
+  const linkedCount = beleg.linked_rechnungen.length + beleg.linked_antraege.length
 
   useEffect(() => {
     if (!beleg.has_thumbnail) return
@@ -76,9 +79,6 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beleg.id, beleg.has_thumbnail])
 
-  const displayName = beleg.bezeichnung || beleg.dateiname
-  const isBescheid = isBescheidTyp(beleg.typ)
-
   const deleteMut = useMutation({
     mutationFn: () => deleteBeleg(beleg.id),
     onSuccess: () => {
@@ -87,10 +87,11 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
     },
   })
 
-  const handleDelete = () => {
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
     setPendingDelete(true)
     deleteTimerRef.current = setTimeout(() => deleteMut.mutate(), 5000)
-    showToast(`"${displayName}" wird gelöscht`, {
+    showToast(`„${displayName}" wird gelöscht`, {
       label: 'Rückgängig',
       onClick: () => {
         if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current)
@@ -99,241 +100,134 @@ export default function BelegCard({ beleg, onDeleted }: Props) {
     })
   }
 
-  const saveMut = useMutation({
-    mutationFn: () => updateBeleg(beleg.id, {
-      bezeichnung: bezeichnung || null,
-      datum: datum || null,
-      eingangsdatum: eingangsdatum || null,
-      typ: (typ || null) as BelegTyp | null,
-      aktenzeichen: aktenzeichen || null,
-      betrag: betrag ? parseFloat(betrag) : null,
-      aussteller: aussteller || null,
-      notiz: notiz || null,
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['belege'] })
-      setEditing(false)
-    },
-    onError: (e: Error) => setError(e.message),
-  })
-
-  const handleOpen = async () => {
-    setOpening(true)
-    setError(null)
-    try {
-      const blobUrl = await fetchBelegBlob(beleg.id)
-      const win = window.open(blobUrl, '_blank')
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
-      if (!win) setError('Popup-Blocker aktiv – bitte erlauben')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF konnte nicht geöffnet werden')
-    } finally {
-      setOpening(false)
-    }
-  }
+  const ext = beleg.dateiname.split('.').pop()?.toUpperCase() ?? 'PDF'
 
   return (
-    <div style={{
-      background: 'var(--surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 10,
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-      opacity: pendingDelete ? 0.35 : 1,
-      pointerEvents: pendingDelete ? 'none' : undefined,
-      transition: 'opacity 0.2s',
-    }}>
-      {/* Thumbnail */}
-      <div onClick={handleOpen} style={{
-        height: 160, background: 'var(--surface-alt)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', overflow: 'hidden', position: 'relative',
-      }} title="PDF öffnen">
+    <div
+      onClick={() => onOpenDetail(beleg.id)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: 'var(--surface)',
+        borderRadius: 12,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        opacity: pendingDelete ? 0.35 : 1,
+        pointerEvents: pendingDelete ? 'none' : undefined,
+        cursor: 'pointer',
+        border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
+        boxShadow: hovered ? '0 10px 28px rgba(0,0,0,0.2)' : 'none',
+        transform: hovered ? 'translateY(-2px)' : 'none',
+        transition: 'transform 0.14s, box-shadow 0.14s, border-color 0.14s',
+      }}
+    >
+      {/* Thumbnail area */}
+      <div style={{ position: 'relative' }}>
         {thumbUrl ? (
-          <img src={thumbUrl} alt={displayName}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        ) : (
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"
-            style={{ color: 'var(--rose)', opacity: 0.7 }}>
-            <path d="M20 2H8a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-1 14H9V4h10v12zM4 6H2v14a2 2 0 002 2h14v-2H4V6z" />
-          </svg>
-        )}
-        {opening && (
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 11, color: '#fff' }}>Öffne…</span>
+          <div style={{ height: 148, background: 'var(--surface-alt)', overflow: 'hidden' }}>
+            <img src={thumbUrl} alt={displayName}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
+        ) : (
+          <DocThumb typ={beleg.typ} height={148} />
+        )}
+
+        {/* Ext tag */}
+        <span style={{
+          position: 'absolute', top: 8, right: 8,
+          fontSize: 8, fontWeight: 800, letterSpacing: '0.06em',
+          background: 'var(--surface-hi)', color: 'var(--text-muted)',
+          padding: '2px 6px', borderRadius: 5, textTransform: 'uppercase',
+        }}>{ext}</span>
+
+        {/* TypeBadge top-left */}
+        {beleg.typ && (
+          <div style={{ position: 'absolute', top: 8, left: 8 }}>
+            <span style={{
+              fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+              background: `var(--${tone}-dim)`,
+              color: `var(--${tone})`,
+              border: `1px solid color-mix(in srgb, var(--${tone}) 30%, transparent)`,
+              letterSpacing: '0.02em', whiteSpace: 'nowrap',
+            }}>
+              {TYP_LABELS[beleg.typ]}
+            </span>
+          </div>
+        )}
+
+        {/* Hover overlay */}
+        {hovered && (
+          <>
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'var(--overlay)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: 'overlay-in 0.15s ease',
+            }}>
+              <span style={{
+                background: 'var(--primary)', color: '#fff',
+                fontSize: 12, fontWeight: 600,
+                padding: '8px 16px', borderRadius: 20,
+                boxShadow: '0 4px 14px rgba(0,0,0,0.3)',
+              }}>✎ Öffnen & bearbeiten</span>
+            </div>
+            <button
+              onClick={handleDelete}
+              disabled={deleteMut.isPending}
+              title="Löschen"
+              style={{
+                position: 'absolute', top: 7, right: 7,
+                width: 26, height: 26, borderRadius: 7,
+                border: 'none', cursor: 'pointer',
+                background: 'var(--surface)', color: 'var(--rose)',
+                fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              }}
+            >🗑</button>
+          </>
         )}
       </div>
 
-      {/* Body */}
-      <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {editing ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {/* Typ */}
-            <select value={typ} onChange={e => {
-              const newTyp = e.target.value as BelegTyp | ''
-              if (isLeistungserbringerTyp(typ) !== isLeistungserbringerTyp(newTyp) ||
-                  isBescheidTyp(typ) !== isBescheidTyp(newTyp)) {
-                setAussteller('')
-              }
-              setTyp(newTyp)
-            }} style={inputStyle}>
-              <option value="">– kein Typ –</option>
-              {(Object.entries(TYP_LABELS) as [BelegTyp, string][]).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-            {/* Bezeichnung */}
-            <input value={bezeichnung} onChange={e => setBezeichnung(e.target.value)}
-              placeholder="Bezeichnung" style={inputStyle} />
-            {/* Aussteller */}
-            <AusstellerSelect typ={typ} value={aussteller} onChange={setAussteller} style={inputStyle} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              <input type="date" value={datum} onChange={e => setDatum(e.target.value)}
-                title={isBescheidTyp(typ as BelegTyp) ? 'Bescheid-Datum' : 'Belegdatum'} style={inputStyle} />
-              {isBescheidTyp(typ as BelegTyp) ? (
-                <input type="date" value={eingangsdatum} onChange={e => setEingangsdatum(e.target.value)}
-                  title="Eingangsdatum" style={inputStyle} />
-              ) : (
-                <input type="number" step="0.01" value={betrag} onChange={e => setBetrag(e.target.value)}
-                  placeholder="Betrag €" style={inputStyle} />
-              )}
-              {isBescheidTyp(typ as BelegTyp) && (
-                <>
-                  <input value={aktenzeichen} onChange={e => setAktenzeichen(e.target.value)}
-                    placeholder="Aktenzeichen" style={inputStyle} />
-                  <input type="number" step="0.01" value={betrag} onChange={e => setBetrag(e.target.value)}
-                    placeholder="Erstattungsbetrag €" style={inputStyle} />
-                </>
-              )}
-            </div>
-            <textarea value={notiz} onChange={e => setNotiz(e.target.value)}
-              placeholder="Notiz" rows={2}
-              style={{ ...inputStyle, resize: 'vertical' }} />
-            {error && <p style={{ fontSize: 11, color: 'var(--rose)', margin: 0 }}>{error}</p>}
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}
-                style={{ fontSize: 11, padding: '4px 10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', opacity: saveMut.isPending ? 0.6 : 1 }}>
-                {saveMut.isPending ? '…' : 'Speichern'}
-              </button>
-              <button onClick={() => { setEditing(false); setError(null) }}
-                style={{ fontSize: 11, padding: '4px 10px', background: 'var(--surface-alt)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>
-                Abbrechen
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Title row */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
-                title={displayName}>
-                {displayName}
-              </span>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <button onClick={() => setEditing(true)}
-                  style={{ fontSize: 11, padding: '2px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-subtle)' }}
-                  title="Bearbeiten">✎</button>
-                <button onClick={handleDelete}
-                  disabled={deleteMut.isPending}
-                  style={{ fontSize: 13, lineHeight: 1, padding: '2px 6px', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-subtle)', opacity: deleteMut.isPending ? 0.5 : 1 }}
-                  title="Löschen">×</button>
-              </div>
-            </div>
+      {/* Card body */}
+      <div style={{ padding: '10px 13px 12px' }}>
+        <div style={{
+          fontSize: 12.5, fontWeight: 600, color: 'var(--text)',
+          marginBottom: 3, lineHeight: 1.35,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+          overflow: 'hidden', minHeight: 34,
+        }} title={displayName}>
+          {displayName}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-subtle)', marginBottom: 9, fontVariantNumeric: 'tabular-nums' }}>
+          {beleg.datum ? beleg.datum.split('-').reverse().join('.') + ' · ' : ''}
+          {formatBytes(beleg.groesse)}
+        </div>
 
-            {/* Badges row */}
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-              {beleg.typ && (
-                <span style={{
-                  fontSize: 10, padding: '1px 6px', borderRadius: 10,
-                  background: TYP_COLORS[beleg.typ] + '22',
-                  color: TYP_COLORS[beleg.typ],
-                  border: `1px solid ${TYP_COLORS[beleg.typ]}44`,
-                  fontWeight: 500, whiteSpace: 'nowrap',
-                }}>
-                  {TYP_LABELS[beleg.typ]}
-                </span>
-              )}
-              {beleg.datum && (
-                <span style={{ fontSize: 10, color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
-                  {formatDate(beleg.datum)}
-                </span>
-              )}
-              {beleg.betrag != null && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
-                  {formatEuro(beleg.betrag)}
-                </span>
-              )}
-            </div>
-
-            {/* Bescheid-spezifische Felder */}
-            {isBescheid && (beleg.aktenzeichen || beleg.eingangsdatum) && (
-              <div style={{ display: 'flex', gap: 8, fontSize: 10, color: 'var(--text-subtle)', flexWrap: 'wrap' }}>
-                {beleg.aktenzeichen && <span title="Aktenzeichen">Az: {beleg.aktenzeichen}</span>}
-                {beleg.eingangsdatum && <span title="Eingangsdatum">Eingang: {formatDate(beleg.eingangsdatum)}</span>}
-              </div>
-            )}
-
-            {/* Aussteller */}
-            {beleg.aussteller && (
-              <p style={{ fontSize: 11, color: 'var(--text-subtle)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={beleg.aussteller}>
-                {beleg.aussteller}
-              </p>
-            )}
-
-            {/* Notiz */}
-            {beleg.notiz && (
-              <p style={{ fontSize: 11, color: 'var(--text-subtle)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={beleg.notiz}>
-                {beleg.notiz}
-              </p>
-            )}
-
-            {/* Footer: Dateigröße + OCR-Status */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>
-                {formatBytes(beleg.groesse)}
-              </span>
-              {beleg.ocr_status === 'done' && beleg.ocr_text && (
-                <span style={{
-                  fontSize: 9, padding: '1px 5px', borderRadius: 8,
-                  background: 'color-mix(in srgb, var(--emerald) 15%, transparent)',
-                  color: 'var(--emerald)',
-                  border: '1px solid color-mix(in srgb, var(--emerald) 30%, transparent)',
-                  fontWeight: 600, whiteSpace: 'nowrap',
-                }} title="OCR-Text verfügbar – durchsuchbar">
-                  OCR ✓
-                </span>
-              )}
-              {beleg.ocr_status === 'failed' && (
-                <span style={{
-                  fontSize: 9, padding: '1px 5px', borderRadius: 8,
-                  background: 'color-mix(in srgb, var(--amber) 15%, transparent)',
-                  color: 'var(--amber)',
-                  border: '1px solid color-mix(in srgb, var(--amber) 30%, transparent)',
-                  fontWeight: 600, whiteSpace: 'nowrap',
-                }} title="OCR konnte keinen Text extrahieren">
-                  OCR –
-                </span>
-              )}
-              {!beleg.ocr_status && (
-                <span style={{
-                  fontSize: 9, padding: '1px 5px', borderRadius: 8,
-                  background: 'color-mix(in srgb, var(--text-subtle) 10%, transparent)',
-                  color: 'var(--text-subtle)',
-                  border: '1px solid color-mix(in srgb, var(--text-subtle) 20%, transparent)',
-                  fontWeight: 500, whiteSpace: 'nowrap',
-                }} title="OCR läuft im Hintergrund">
-                  OCR …
-                </span>
-              )}
-            </div>
-
-            {error && <p style={{ fontSize: 11, color: 'var(--rose)', margin: 0 }}>{error}</p>}
-          </>
-        )}
+        {/* Footer */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ flex: 1 }} />
+          {linkedCount > 0 ? (
+            <span style={{
+              fontSize: 9, fontWeight: 700,
+              color: 'var(--green)', background: 'var(--green-dim)',
+              padding: '2px 7px', borderRadius: 10,
+              display: 'flex', alignItems: 'center', gap: 3,
+            }}>⛓ {linkedCount}</span>
+          ) : (
+            <span style={{
+              fontSize: 9, fontWeight: 700,
+              color: 'var(--amber)', background: 'var(--amber-dim)',
+              padding: '2px 7px', borderRadius: 10,
+            }}>frei</span>
+          )}
+          <span style={{
+            fontSize: 10, fontWeight: 700,
+            color: beleg.ocr_status === 'done' ? 'var(--green)' : 'var(--text-subtle)',
+          }}>
+            {beleg.ocr_status === 'done' ? 'OCR ✓' : 'OCR ○'}
+          </span>
+        </div>
       </div>
     </div>
   )

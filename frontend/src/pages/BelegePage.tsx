@@ -1,12 +1,23 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getBelege, uploadBeleg } from '../api/belege'
 import BelegCard from '../components/BelegCard'
 import BelegeUpload from '../components/BelegeUpload'
+import BelegDetailSlider from '../components/BelegDetailSlider'
 import { fileToGrayscalePdf } from '../utils/imageToGrayscalePdf'
-import type { BelegTyp } from '../types'
+import type { Beleg, BelegTyp } from '../types'
 
-const TYP_FILTER: Array<{ value: BelegTyp | ''; label: string }> = [
+// Typ-Tone für Sidebar-Punkte (matching design)
+const TYPE_TONE: Partial<Record<BelegTyp, string>> = {
+  rechnung: 'amber',
+  erstbescheid: 'teal',
+  widerspruchsbescheid: 'rose',
+  rezept: 'green',
+  ueberweisung: 'blue',
+  sonstiges: 'purple',
+}
+
+const TYP_ITEMS: Array<{ value: BelegTyp | ''; label: string }> = [
   { value: '', label: 'Alle' },
   { value: 'rechnung', label: 'Rechnung' },
   { value: 'erstbescheid', label: 'Erstbescheid' },
@@ -16,43 +27,90 @@ const TYP_FILTER: Array<{ value: BelegTyp | ''; label: string }> = [
   { value: 'sonstiges', label: 'Sonstiges' },
 ]
 
+type VerknuepftFilter = '' | 'ja' | 'nein'
+type OcrFilter = '' | 'done' | 'pending'
+type SortMode = 'neu' | 'az'
+
+// ── Sidebar-Komponenten ────────────────────────────────────────────────────
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{
+        fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)',
+        letterSpacing: '0.07em', textTransform: 'uppercase',
+        marginBottom: 8, padding: '0 4px',
+      }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function FilterRow({
+  label, count, active, dot, onClick,
+}: { label: string; count: number; active: boolean; dot?: string; onClick: () => void }) {
+  const [hov, setHov] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 9,
+        padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
+        background: active ? 'var(--row-active)' : hov ? 'var(--row-hover)' : 'transparent',
+        transition: 'background 0.12s',
+      }}
+    >
+      {dot && (
+        <span style={{
+          width: 8, height: 8, borderRadius: 3,
+          background: dot, flexShrink: 0,
+        }} />
+      )}
+      <span style={{
+        flex: 1, fontSize: 13,
+        color: active ? 'var(--text)' : 'var(--text-muted)',
+        fontWeight: active ? 600 : 400,
+      }}>{label}</span>
+      <span style={{
+        fontSize: 11, color: 'var(--text-subtle)',
+        background: active ? 'var(--surface-hi)' : 'transparent',
+        borderRadius: 10, padding: '1px 7px',
+        minWidth: 22, textAlign: 'center',
+        fontVariantNumeric: 'tabular-nums',
+      }}>{count}</span>
+    </div>
+  )
+}
+
 export default function BelegePage() {
   const qc = useQueryClient()
   const [q, setQ] = useState('')
-  const [typFilter, setTypFilter] = useState<BelegTyp | ''>('')
   const [datumVon, setDatumVon] = useState('')
   const [datumBis, setDatumBis] = useState('')
+  const [typFilter, setTypFilter] = useState<BelegTyp | ''>('')
+  const [verknuepftFilter, setVerknuepftFilter] = useState<VerknuepftFilter>('')
+  const [ocrFilter, setOcrFilter] = useState<OcrFilter>('')
+  const [sort, setSort] = useState<SortMode>('neu')
   const [showUpload, setShowUpload] = useState(false)
+  const [selectedBelegId, setSelectedBelegId] = useState<string | null>(null)
 
-  // Seitenweites Drag & Drop
   const dragCounterRef = useRef(0)
   const [pageDragOver, setPageDragOver] = useState(false)
   const [batchUploading, setBatchUploading] = useState(false)
   const [batchError, setBatchError] = useState<string | null>(null)
 
-  const handlePageDragEnter = () => {
-    dragCounterRef.current++
-    setPageDragOver(true)
-  }
-  const handlePageDragLeave = () => {
-    dragCounterRef.current--
-    if (dragCounterRef.current === 0) setPageDragOver(false)
-  }
+  const handlePageDragEnter = () => { dragCounterRef.current++; setPageDragOver(true) }
+  const handlePageDragLeave = () => { dragCounterRef.current--; if (dragCounterRef.current === 0) setPageDragOver(false) }
   const handlePageDragOver = (e: React.DragEvent) => { e.preventDefault() }
-
   const handlePageDrop = async (e: React.DragEvent) => {
-    e.preventDefault()
-    dragCounterRef.current = 0
-    setPageDragOver(false)
-    setBatchError(null)
-
+    e.preventDefault(); dragCounterRef.current = 0; setPageDragOver(false); setBatchError(null)
     const files = Array.from(e.dataTransfer.files).filter(f =>
-      f.type === 'application/pdf' ||
-      f.name.toLowerCase().endsWith('.pdf') ||
-      f.type.startsWith('image/')
+      f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf') || f.type.startsWith('image/')
     )
     if (files.length === 0) return
-
     setBatchUploading(true)
     let errors = 0
     for (const file of files) {
@@ -61,39 +119,98 @@ export default function BelegePage() {
         if (file.type.startsWith('image/')) {
           const pdfBlob = await fileToGrayscalePdf(file)
           pdf = new File([pdfBlob], file.name.replace(/\.[^.]+$/, '.pdf'), { type: 'application/pdf' })
-        } else {
-          pdf = file
-        }
-        const baseName = file.name.replace(/\.[^.]+$/, '')
-        await uploadBeleg(pdf, undefined, { bezeichnung: baseName })
-      } catch {
-        errors++
-      }
+        } else { pdf = file }
+        await uploadBeleg(pdf, undefined, { bezeichnung: file.name.replace(/\.[^.]+$/, '') })
+      } catch { errors++ }
     }
     qc.invalidateQueries({ queryKey: ['belege'] })
     setBatchUploading(false)
     if (errors > 0) setBatchError(`${errors} Datei(en) konnten nicht hochgeladen werden`)
   }
 
-  const queryKey = ['belege', q, typFilter, datumVon, datumBis]
-
-  const { data: belege = [], isLoading, error } = useQuery({
+  const queryKey = ['belege', q, datumVon, datumBis]
+  const { data: allBelege = [], isLoading, error } = useQuery({
     queryKey,
     queryFn: () => getBelege({
       q: q || undefined,
-      typ: (typFilter || undefined) as BelegTyp | undefined,
       datum_von: datumVon || undefined,
       datum_bis: datumBis || undefined,
     }),
     refetchInterval: (query) => {
-      const items = query.state.data as import('../types').Beleg[] | undefined
-      return items?.some((b: import('../types').Beleg) => !b.has_thumbnail || b.ocr_status === null) ? 4000 : false
+      const items = query.state.data as Beleg[] | undefined
+      return items?.some(b => !b.has_thumbnail || b.ocr_status === null) ? 4000 : false
     },
   })
 
+  // Facetten-Zählungen
+  const baseForTypFacets = useMemo(() => allBelege.filter(b => {
+    if (verknuepftFilter === 'ja' && b.linked_rechnungen.length === 0 && b.linked_antraege.length === 0) return false
+    if (verknuepftFilter === 'nein' && (b.linked_rechnungen.length > 0 || b.linked_antraege.length > 0)) return false
+    if (ocrFilter === 'done' && b.ocr_status !== 'done') return false
+    if (ocrFilter === 'pending' && b.ocr_status !== null) return false
+    return true
+  }), [allBelege, verknuepftFilter, ocrFilter])
+
+  const typCounts = useMemo(() => {
+    const map: Record<string, number> = { '': baseForTypFacets.length }
+    for (const b of baseForTypFacets) {
+      const t = b.typ ?? 'sonstiges'
+      map[t] = (map[t] ?? 0) + 1
+    }
+    return map
+  }, [baseForTypFacets])
+
+  const baseForVerknuepftFacets = useMemo(() => allBelege.filter(b => {
+    if (typFilter && b.typ !== typFilter) return false
+    if (ocrFilter === 'done' && b.ocr_status !== 'done') return false
+    if (ocrFilter === 'pending' && b.ocr_status !== null) return false
+    return true
+  }), [allBelege, typFilter, ocrFilter])
+
+  const verknuepftCounts = useMemo(() => ({
+    alle: baseForVerknuepftFacets.length,
+    ja: baseForVerknuepftFacets.filter(b => b.linked_rechnungen.length > 0 || b.linked_antraege.length > 0).length,
+    nein: baseForVerknuepftFacets.filter(b => b.linked_rechnungen.length === 0 && b.linked_antraege.length === 0).length,
+  }), [baseForVerknuepftFacets])
+
+  const baseForOcrFacets = useMemo(() => allBelege.filter(b => {
+    if (typFilter && b.typ !== typFilter) return false
+    if (verknuepftFilter === 'ja' && b.linked_rechnungen.length === 0 && b.linked_antraege.length === 0) return false
+    if (verknuepftFilter === 'nein' && (b.linked_rechnungen.length > 0 || b.linked_antraege.length > 0)) return false
+    return true
+  }), [allBelege, typFilter, verknuepftFilter])
+
+  const ocrCounts = useMemo(() => ({
+    alle: baseForOcrFacets.length,
+    done: baseForOcrFacets.filter(b => b.ocr_status === 'done').length,
+    pending: baseForOcrFacets.filter(b => b.ocr_status === null).length,
+  }), [baseForOcrFacets])
+
+  const belege = useMemo(() => {
+    let list = allBelege.filter(b => {
+      if (typFilter && b.typ !== typFilter) return false
+      if (verknuepftFilter === 'ja' && b.linked_rechnungen.length === 0 && b.linked_antraege.length === 0) return false
+      if (verknuepftFilter === 'nein' && (b.linked_rechnungen.length > 0 || b.linked_antraege.length > 0)) return false
+      if (ocrFilter === 'done' && b.ocr_status !== 'done') return false
+      if (ocrFilter === 'pending' && b.ocr_status !== null) return false
+      return true
+    })
+    const copy = [...list]
+    if (sort === 'az') return copy.sort((a, b) => (a.bezeichnung || a.dateiname).localeCompare(b.bezeichnung || b.dateiname, 'de'))
+    return copy
+  }, [allBelege, typFilter, verknuepftFilter, ocrFilter, sort])
+
+  const hasActiveFilters = !!(typFilter || verknuepftFilter || ocrFilter || datumVon || datumBis)
+
+  const fieldStyle: React.CSSProperties = {
+    background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 8,
+    padding: '8px 12px', fontSize: 13, color: 'var(--text)',
+    outline: 'none', boxSizing: 'border-box' as const,
+  }
+
   return (
     <div
-      style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto', position: 'relative' }}
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}
       onDragEnter={handlePageDragEnter}
       onDragLeave={handlePageDragLeave}
       onDragOver={handlePageDragOver}
@@ -103,26 +220,22 @@ export default function BelegePage() {
       {pageDragOver && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 300,
-          background: 'color-mix(in srgb, var(--primary) 10%, transparent)',
-          border: '3px dashed var(--primary)',
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          gap: 12, pointerEvents: 'none',
+          background: 'var(--dropzone, color-mix(in srgb, var(--primary) 6%, transparent))',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
         }}>
-          <svg width="56" height="56" fill="none" stroke="var(--primary)" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-          </svg>
-          <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary)' }}>
-            Belege hier ablegen
-          </span>
-          <span style={{ fontSize: 13, color: 'var(--primary)', opacity: 0.7 }}>
-            PDF oder Bilder – OCR läuft automatisch
-          </span>
+          <div style={{
+            border: '2px dashed var(--primary)', borderRadius: 20,
+            padding: '48px 80px', background: 'var(--surface)',
+            textAlign: 'center', boxShadow: '0 24px 80px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>↓</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Dateien hier ablegen</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>PDF, JPG, PNG · automatische OCR-Erkennung</div>
+          </div>
         </div>
       )}
 
-      {/* Batch-Upload-Fortschritt */}
       {batchUploading && (
         <div style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 200,
@@ -131,153 +244,190 @@ export default function BelegePage() {
           display: 'flex', alignItems: 'center', gap: 10,
           boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
         }}>
-          <svg width="16" height="16" fill="none" stroke="var(--primary)" viewBox="0 0 24 24" style={{ animation: 'spin 1s linear infinite' }}>
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
           <span style={{ fontSize: 13, color: 'var(--text)' }}>Belege werden hochgeladen…</span>
         </div>
       )}
       {batchError && !batchUploading && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: 'var(--rose-dim, #fee2e2)', borderRadius: 7, fontSize: 12, color: 'var(--rose)' }}>
-          {batchError} <button onClick={() => setBatchError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--rose)', fontWeight: 600, marginLeft: 6 }}>✕</button>
+        <div style={{ margin: '8px 24px 0', padding: '8px 12px', background: 'var(--rose-dim)', borderRadius: 7, fontSize: 12, color: 'var(--rose)' }}>
+          {batchError}
+          <button onClick={() => setBatchError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--rose)', fontWeight: 600, marginLeft: 6 }}>✕</button>
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Belege</h1>
-          <p style={{ fontSize: 12, color: 'var(--text-subtle)', margin: '2px 0 0' }}>Dokumentenarchiv · Drag & Drop zum Importieren</p>
-        </div>
-        <button
-          onClick={() => setShowUpload(v => !v)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', fontSize: 13, fontWeight: 500,
-            background: 'var(--primary)', color: '#fff',
-            border: 'none', borderRadius: 7, cursor: 'pointer',
-          }}
-        >
-          {showUpload ? '✕ Schließen' : '+ Neuer Beleg'}
-        </button>
-      </div>
+      {/* Body: Sidebar + Main */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
-      {/* Upload Panel */}
-      {showUpload && (
+        {/* ── Sidebar ── */}
         <div style={{
+          width: 236, minWidth: 236, flexShrink: 0,
+          borderRight: '1px solid var(--border)',
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 10,
-          padding: '14px 16px',
-          marginBottom: 20,
+          display: 'flex', flexDirection: 'column',
+          overflowY: 'auto',
         }}>
-          <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 10px', color: 'var(--text)' }}>Neuer Beleg</p>
-          <BelegeUpload
-            queryKeys={[queryKey]}
-            onUploaded={() => { setShowUpload(false); qc.invalidateQueries({ queryKey: ['belege'] }) }}
-            onCancel={() => setShowUpload(false)}
-          />
+          <div style={{ padding: '18px 14px 8px' }}>
+            <FilterGroup title="Typ">
+              {TYP_ITEMS.map(f => (
+                <FilterRow
+                  key={f.value}
+                  label={f.label}
+                  count={typCounts[f.value] ?? 0}
+                  active={typFilter === f.value}
+                  dot={f.value ? `var(--${TYPE_TONE[f.value] ?? 'purple'})` : 'var(--primary)'}
+                  onClick={() => setTypFilter(f.value)}
+                />
+              ))}
+            </FilterGroup>
+
+            <FilterGroup title="Verknüpfungen">
+              <FilterRow label="Alle" count={verknuepftCounts.alle} active={verknuepftFilter === ''} dot="var(--primary)" onClick={() => setVerknuepftFilter('')} />
+              <FilterRow label="Verknüpft" count={verknuepftCounts.ja} active={verknuepftFilter === 'ja'} dot="var(--green)" onClick={() => setVerknuepftFilter('ja')} />
+              <FilterRow label="Ohne Verknüpfung" count={verknuepftCounts.nein} active={verknuepftFilter === 'nein'} dot="var(--amber)" onClick={() => setVerknuepftFilter('nein')} />
+            </FilterGroup>
+
+            <FilterGroup title="Texterkennung">
+              <FilterRow label="Alle" count={ocrCounts.alle} active={ocrFilter === ''} dot="var(--primary)" onClick={() => setOcrFilter('')} />
+              <FilterRow label="OCR abgeschlossen" count={ocrCounts.done} active={ocrFilter === 'done'} dot="var(--green)" onClick={() => setOcrFilter('done')} />
+              <FilterRow label="Ausstehend" count={ocrCounts.pending} active={ocrFilter === 'pending'} dot="var(--amber)" onClick={() => setOcrFilter('pending')} />
+            </FilterGroup>
+
+            {/* Zeitraum */}
+            <FilterGroup title="Belegdatum">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 4px' }}>
+                <input type="date" value={datumVon} onChange={e => setDatumVon(e.target.value)}
+                  placeholder="Von" style={{ ...fieldStyle, fontSize: 12, padding: '6px 10px' }} />
+                <input type="date" value={datumBis} onChange={e => setDatumBis(e.target.value)}
+                  placeholder="Bis" style={{ ...fieldStyle, fontSize: 12, padding: '6px 10px' }} />
+                {(datumVon || datumBis) && (
+                  <button onClick={() => { setDatumVon(''); setDatumBis('') }}
+                    style={{ fontSize: 11, padding: '3px 0', background: 'none', border: 'none', color: 'var(--text-subtle)', cursor: 'pointer', textAlign: 'left' }}>
+                    ✕ Zeitraum zurücksetzen
+                  </button>
+                )}
+              </div>
+            </FilterGroup>
+
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setTypFilter(''); setVerknuepftFilter(''); setOcrFilter(''); setDatumVon(''); setDatumBis('') }}
+                style={{
+                  width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8,
+                  border: '1px solid var(--border)', background: 'transparent',
+                  color: 'var(--text-muted)', cursor: 'pointer', marginTop: 4,
+                  transition: 'background 0.12s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hover)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                ✕ Alle Filter zurücksetzen
+              </button>
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Filters */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-        {/* Search */}
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="Suche nach Bezeichnung, Notiz, Dateiname…"
-          style={{
-            fontSize: 13, padding: '8px 12px',
-            border: '1px solid var(--border)', borderRadius: 7,
-            background: 'var(--surface)', color: 'var(--text)',
-            width: '100%', boxSizing: 'border-box',
-          }}
-        />
+        {/* ── Hauptbereich ── */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
 
-        {/* Type chips + date range */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {TYP_FILTER.map(f => (
-            <button
-              key={f.value}
-              onClick={() => setTypFilter(f.value)}
-              style={{
-                fontSize: 12, padding: '4px 12px',
-                borderRadius: 20, border: '1px solid var(--border)',
-                background: typFilter === f.value ? 'var(--primary)' : 'var(--surface-alt)',
-                color: typFilter === f.value ? '#fff' : 'var(--text-muted)',
-                cursor: 'pointer', fontWeight: typFilter === f.value ? 600 : 400,
-              }}
-            >
-              {f.label}
-            </button>
-          ))}
+          {/* Toolbar */}
+          <div style={{ padding: '16px 24px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14, gap: 16 }}>
+              <div>
+                <h1 style={{ fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>Belege</h1>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+                  Dokumentenarchiv · {belege.length} {belege.length === 1 ? 'Beleg' : 'Belege'}
+                  {typFilter ? ` · ${TYP_ITEMS.find(t => t.value === typFilter)?.label}` : ''}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUpload(v => !v)}
+                style={{
+                  background: 'var(--primary)', color: '#fff', border: 'none',
+                  borderRadius: 20, padding: '8px 18px', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  transition: 'opacity 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+              >
+                {showUpload ? '✕ Schließen' : '+ Beleg hochladen'}
+              </button>
+            </div>
 
-          <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-subtle)' }}>von</span>
-          <input
-            type="date"
-            value={datumVon}
-            onChange={e => setDatumVon(e.target.value)}
-            style={{ fontSize: 12, padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 5, background: 'var(--surface-alt)', color: 'var(--text)' }}
-          />
-          <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>bis</span>
-          <input
-            type="date"
-            value={datumBis}
-            onChange={e => setDatumBis(e.target.value)}
-            style={{ fontSize: 12, padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 5, background: 'var(--surface-alt)', color: 'var(--text)' }}
-          />
-          {(datumVon || datumBis) && (
-            <button
-              onClick={() => { setDatumVon(''); setDatumBis('') }}
-              style={{ fontSize: 11, color: 'var(--text-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
-            >
-              ✕ Datum
-            </button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
+                <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', fontSize: 13 }}>⌕</span>
+                <input
+                  value={q}
+                  onChange={e => setQ(e.target.value)}
+                  placeholder="Suche nach Bezeichnung, Notiz…"
+                  style={{ ...fieldStyle, paddingLeft: 30, width: '100%' }}
+                />
+              </div>
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 11, color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>Sortieren:</span>
+              <select
+                value={sort}
+                onChange={e => setSort(e.target.value as SortMode)}
+                style={{ ...fieldStyle, width: 'auto', fontSize: 12, padding: '7px 10px' }}
+              >
+                <option value="neu">Neueste zuerst</option>
+                <option value="az">Name (A–Z)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Upload-Panel */}
+          {showUpload && (
+            <div style={{ margin: '12px 24px 0', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', flexShrink: 0 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 10px', color: 'var(--text)' }}>Neuer Beleg</p>
+              <BelegeUpload
+                queryKeys={[queryKey]}
+                onUploaded={() => { setShowUpload(false); qc.invalidateQueries({ queryKey: ['belege'] }) }}
+                onCancel={() => setShowUpload(false)}
+              />
+            </div>
           )}
+
+          {/* Grid */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px 32px' }}>
+            {isLoading && (
+              <p style={{ fontSize: 13, color: 'var(--text-subtle)', textAlign: 'center', padding: 40 }}>Lade…</p>
+            )}
+            {error && (
+              <p style={{ fontSize: 13, color: 'var(--rose)', textAlign: 'center', padding: 20 }}>Fehler beim Laden der Belege</p>
+            )}
+            {!isLoading && !error && belege.length === 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '70%', gap: 10, color: 'var(--text-subtle)' }}>
+                <div style={{ fontSize: 30, opacity: 0.4 }}>📄</div>
+                <span style={{ fontSize: 13 }}>
+                  {q || hasActiveFilters ? 'Keine Belege gefunden' : 'Noch keine Belege – Drag & Drop oder „Beleg hochladen"'}
+                </span>
+              </div>
+            )}
+            {!isLoading && belege.length > 0 && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+                gap: 16,
+              }}>
+                {belege.map(b => (
+                  <BelegCard
+                    key={b.id}
+                    beleg={b}
+                    selected={selectedBelegId === b.id}
+                    onOpenDetail={setSelectedBelegId}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Results */}
-      {isLoading && (
-        <p style={{ fontSize: 13, color: 'var(--text-subtle)', textAlign: 'center', padding: 40 }}>Lade…</p>
-      )}
-
-      {error && (
-        <p style={{ fontSize: 13, color: 'var(--rose)', textAlign: 'center', padding: 20 }}>
-          Fehler beim Laden der Belege
-        </p>
-      )}
-
-      {!isLoading && !error && belege.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-subtle)' }}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.3, margin: '0 auto 12px', display: 'block' }}>
-            <path d="M20 2H8a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-1 14H9V4h10v12zM4 6H2v14a2 2 0 002 2h14v-2H4V6z" />
-          </svg>
-          <p style={{ fontSize: 14, margin: 0 }}>
-            {q || typFilter || datumVon || datumBis
-              ? 'Keine Belege gefunden'
-              : 'Noch keine Belege vorhanden – klicke auf „+ Neuer Beleg"'}
-          </p>
-        </div>
-      )}
-
-      {!isLoading && belege.length > 0 && (
-        <>
-          <p style={{ fontSize: 11, color: 'var(--text-subtle)', margin: '0 0 12px' }}>
-            {belege.length} {belege.length === 1 ? 'Beleg' : 'Belege'}
-          </p>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-            gap: 16,
-          }}>
-            {belege.map(b => (
-              <BelegCard key={b.id} beleg={b} />
-            ))}
-          </div>
-        </>
-      )}
+      <BelegDetailSlider
+        belegId={selectedBelegId}
+        onClose={() => setSelectedBelegId(null)}
+      />
     </div>
   )
 }
