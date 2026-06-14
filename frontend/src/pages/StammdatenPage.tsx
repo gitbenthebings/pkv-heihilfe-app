@@ -1413,46 +1413,115 @@ function EinstellungenTab() {
   )
 }
 
+// ─── Sidebar Navigation ───────────────────────────────────────────────────────
+
+function NavGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{
+        fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)',
+        letterSpacing: '0.07em', textTransform: 'uppercase',
+        marginBottom: 8, padding: '0 4px',
+      }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function NavRow({ label, dot, active, onClick }: {
+  label: string; dot: string; active: boolean; onClick: () => void
+}) {
+  const [hov, setHov] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 9,
+        padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
+        background: active ? 'var(--row-active)' : hov ? 'var(--row-hover)' : 'transparent',
+        transition: 'background 0.12s',
+      }}
+    >
+      <span style={{
+        width: 8, height: 8, borderRadius: 3,
+        background: dot, flexShrink: 0,
+        opacity: active ? 1 : 0.6,
+      }} />
+      <span style={{
+        flex: 1, fontSize: 13,
+        color: active ? 'var(--text)' : 'var(--text-muted)',
+        fontWeight: active ? 600 : 400,
+      }}>{label}</span>
+    </div>
+  )
+}
+
+const TAB_META: Record<Tab, { dot: string; sub: string }> = {
+  personen:       { dot: 'var(--blue)',         sub: 'Familienangehörige & Versicherungsdaten' },
+  beihilfestellen:{ dot: 'var(--teal)',         sub: 'Behörden & berechtigte Personen' },
+  pkv:            { dot: 'var(--teal)',         sub: 'Versicherer & zugeordnete Personen' },
+  correspondents: { dot: 'var(--amber)',        sub: 'Ärzte, Kliniken & Apotheken' },
+  benutzer:       { dot: 'var(--purple)',       sub: 'App-Zugänge & Passwörter' },
+  einstellungen:  { dot: 'var(--text-subtle)',  sub: 'Integrationen, Scan & Logo' },
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function StammdatenPage() {
   const [tab, setTab] = useState<Tab>('personen')
 
   return (
-    <div className="space-y-4">
-      <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)' }}>Stammdaten</h1>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
-      <div style={{ borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
-        <nav className="flex gap-1" style={{ minWidth: 'max-content' }}>
-          {(Object.keys(tabLabels) as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: tab === t ? 600 : 400,
-                color: tab === t ? 'var(--primary)' : 'var(--text-muted)',
-                background: 'none',
-                border: 'none',
-                borderBottom: tab === t ? '2px solid var(--primary)' : '2px solid transparent',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'color 0.15s',
-              } as React.CSSProperties}
-            >
-              {tabLabels[t]}
-            </button>
-          ))}
-        </nav>
+      {/* ── Sidebar ── */}
+      <div style={{
+        width: 220, minWidth: 220, flexShrink: 0,
+        borderRight: '1px solid var(--border)',
+        background: 'var(--surface)',
+        display: 'flex', flexDirection: 'column',
+        overflowY: 'auto',
+      }}>
+        <div style={{ padding: '18px 14px 8px' }}>
+          <NavGroup title="Verwaltung">
+            <NavRow label="Personen"           dot={TAB_META.personen.dot}        active={tab === 'personen'}        onClick={() => setTab('personen')} />
+            <NavRow label="Beihilfestellen"    dot={TAB_META.beihilfestellen.dot} active={tab === 'beihilfestellen'} onClick={() => setTab('beihilfestellen')} />
+            <NavRow label="PKV"                dot={TAB_META.pkv.dot}             active={tab === 'pkv'}             onClick={() => setTab('pkv')} />
+            <NavRow label="Leistungserbringer" dot={TAB_META.correspondents.dot}  active={tab === 'correspondents'}  onClick={() => setTab('correspondents')} />
+          </NavGroup>
+          <NavGroup title="System">
+            <NavRow label="Benutzer"           dot={TAB_META.benutzer.dot}        active={tab === 'benutzer'}        onClick={() => setTab('benutzer')} />
+            <NavRow label="Einstellungen"      dot={TAB_META.einstellungen.dot}   active={tab === 'einstellungen'}   onClick={() => setTab('einstellungen')} />
+          </NavGroup>
+        </div>
       </div>
 
-      {tab === 'personen' && <PersonenTab />}
-      {tab === 'correspondents' && <CorrespondentsTab />}
-      {tab === 'beihilfestellen' && <BeihilfestellenTab />}
-      {tab === 'pkv' && <PkvTab />}
-      {tab === 'benutzer' && <BenutzerTab />}
-      {tab === 'einstellungen' && <EinstellungenTab />}
+      {/* ── Hauptbereich ── */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
+
+        {/* Toolbar */}
+        <div style={{ padding: '16px 24px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <h1 style={{ fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
+            {tabLabels[tab]}
+          </h1>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+            {TAB_META[tab].sub}
+          </div>
+        </div>
+
+        {/* Tab-Inhalt */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px 32px' }}>
+          {tab === 'personen'        && <PersonenTab />}
+          {tab === 'correspondents'  && <CorrespondentsTab />}
+          {tab === 'beihilfestellen' && <BeihilfestellenTab />}
+          {tab === 'pkv'             && <PkvTab />}
+          {tab === 'benutzer'        && <BenutzerTab />}
+          {tab === 'einstellungen'   && <EinstellungenTab />}
+        </div>
+      </div>
     </div>
   )
 }
