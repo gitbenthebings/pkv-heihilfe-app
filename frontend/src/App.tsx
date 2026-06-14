@@ -4,6 +4,7 @@ import { useAuth } from './hooks/useAuth'
 import { JahrProvider } from './context/JahrContext'
 import { ToastProvider } from './context/ToastContext'
 import LoginPage from './pages/LoginPage'
+import SetupPage from './pages/SetupPage'
 import DashboardPage from './pages/DashboardPage'
 import RechnungenPage from './pages/RechnungenPage'
 import StammdatenPage from './pages/StammdatenPage'
@@ -27,6 +28,7 @@ export default function App() {
       <JahrProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/setup" element={<SetupPage />} />
           <Route
             path="/"
             element={

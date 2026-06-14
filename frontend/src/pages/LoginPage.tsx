@@ -1,6 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, useEffect } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { getConfig } from '../api/config'
+import { LOGO_URL } from '../api/logo'
+import { getSetupStatus } from '../api/setup'
 
 export default function LoginPage() {
   const { login, isAuthenticated } = useAuth()
@@ -9,6 +12,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [hasLogo, setHasLogo] = useState(false)
+
+  useEffect(() => {
+    getConfig().then(c => setHasLogo(!!c.has_logo))
+    getSetupStatus().then(s => {
+      if (s.needs_setup) navigate('/setup', { replace: true })
+    }).catch(() => {})
+  }, [navigate])
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />
@@ -29,45 +40,120 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md w-full max-w-sm p-8">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1">PKV-Abrechnung</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Bitte anmelden</p>
+    <div style={{
+      minHeight: '100vh',
+      background: 'var(--bg)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
+      <div style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 14,
+        boxShadow: '0 8px 40px rgba(0,0,0,0.12)',
+        width: '100%',
+        maxWidth: 360,
+        padding: '36px 32px',
+      }}>
+        {/* Logo oder App-Name */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          {hasLogo ? (
+            <img
+              src={LOGO_URL}
+              alt="Logo"
+              style={{ maxHeight: 80, maxWidth: '100%', objectFit: 'contain' }}
+            />
+          ) : (
+            <>
+              <div style={{
+                width: 48, height: 48, borderRadius: 14,
+                background: 'var(--primary-dim)',
+                border: '1px solid rgba(127,127,255,0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 12px',
+              }}>
+                <svg width="26" height="26" viewBox="0 0 13 13" fill="none">
+                  <rect x="1" y="1" width="5" height="6" rx="1.2" fill="var(--primary)" opacity="0.9"/>
+                  <rect x="8" y="1" width="4" height="3.5" rx="1" fill="var(--primary)" opacity="0.55"/>
+                  <rect x="1" y="9" width="11" height="3" rx="1" fill="var(--primary)" opacity="0.7"/>
+                </svg>
+              </div>
+              <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                PKV-Abrechnung
+              </h1>
+            </>
+          )}
+        </div>
+
+        <p style={{ fontSize: 13, color: 'var(--text-subtle)', margin: '0 0 20px', textAlign: 'center' }}>
+          Bitte anmelden
+        </p>
 
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded p-3 text-red-700 dark:text-red-300 text-sm mb-4">
+          <div style={{
+            background: 'var(--rose-dim, #fee2e2)',
+            border: '1px solid var(--rose)',
+            borderRadius: 6,
+            padding: '8px 12px',
+            color: 'var(--rose)',
+            fontSize: 13,
+            marginBottom: 16,
+          }}>
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">E-Mail</label>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 5 }}>
+              E-Mail
+            </label>
             <input
               type="email"
               required
               autoFocus
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                border: '1px solid var(--border)', borderRadius: 7,
+                padding: '8px 12px', fontSize: 14,
+                background: 'var(--surface-alt)', color: 'var(--text)',
+              }}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Passwort</label>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 5 }}>
+              Passwort
+            </label>
             <input
               type="password"
               required
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                border: '1px solid var(--border)', borderRadius: 7,
+                padding: '8px 12px', fontSize: 14,
+                background: 'var(--surface-alt)', color: 'var(--text)',
+              }}
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            style={{
+              width: '100%', padding: '9px',
+              background: 'var(--primary)', color: '#fff',
+              border: 'none', borderRadius: 7,
+              fontSize: 14, fontWeight: 600,
+              cursor: loading ? 'default' : 'pointer',
+              opacity: loading ? 0.6 : 1,
+              marginTop: 4,
+            }}
           >
-            {loading ? 'Anmelden...' : 'Anmelden'}
+            {loading ? 'Anmelden…' : 'Anmelden'}
           </button>
         </form>
       </div>

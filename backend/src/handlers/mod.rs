@@ -1,4 +1,5 @@
 pub mod aktivitaet;
+pub mod setup;
 pub mod belege;
 pub mod anhaenge;
 pub mod auth;
@@ -9,6 +10,7 @@ pub mod beihilfe_bescheide;
 pub mod config;
 pub mod einstellungen;
 pub mod export;
+pub mod logo;
 pub mod personen;
 pub mod pkv;
 pub mod correspondents;

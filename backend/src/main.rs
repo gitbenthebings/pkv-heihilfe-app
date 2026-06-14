@@ -9,11 +9,13 @@ mod seed;
 mod services;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::{
     routing::{delete, get, patch, post},
     Extension, Router,
 };
+use tokio::sync::Semaphore;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -29,6 +31,7 @@ pub struct AppState {
     pub multipage_scan: bool,
     pub paperless_ngx_url: Option<String>,
     pub paperless_ngx_token: Option<String>,
+    pub ocr_semaphore: Arc<Semaphore>,
 }
 
 #[tokio::main]
@@ -59,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
         multipage_scan: cfg.multipage_scan,
         paperless_ngx_url: cfg.paperless_ngx_url.clone(),
         paperless_ngx_token: cfg.paperless_ngx_token.clone(),
+        ocr_semaphore: Arc::new(Semaphore::new(2)),
     };
 
     if cfg.paperless_ngx_url.is_some() {
@@ -72,7 +76,10 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         // Public (kein JWT erforderlich)
+        .route("/api/setup/status", get(handlers::setup::status))
+        .route("/api/setup", post(handlers::setup::run))
         .route("/api/config", get(handlers::config::get))
+        .route("/api/logo", get(handlers::logo::get))
         .route("/api/auth/login", post(handlers::auth::login))
         // Benutzer
         .route("/api/benutzer", get(handlers::benutzer::list))
@@ -128,6 +135,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/einstellungen", patch(handlers::einstellungen::update))
         .route("/api/einstellungen/paperless-test", post(handlers::einstellungen::paperless_test))
         .route("/api/einstellungen/gdrive-test", post(handlers::einstellungen::gdrive_test))
+        // Logo
+        .route("/api/logo", post(handlers::logo::upload))
+        .route("/api/logo", delete(handlers::logo::delete))
         // Export
         .route("/api/export", post(handlers::export::run))
         // Beihilfe-Anträge
@@ -162,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/belege/:id", delete(handlers::belege::delete))
         .route("/api/belege/:id/datei", get(handlers::belege::serve_datei))
         .route("/api/belege/:id/thumbnail", get(handlers::belege::serve_thumbnail))
+        .route("/api/belege/:id/ocr", post(handlers::belege::retrigger_ocr))
         // Belege ↔ Rechnungen
         .route("/api/rechnungen/:id/belege", get(handlers::belege::list_for_rechnung))
         .route("/api/rechnungen/:id/belege", post(handlers::belege::add_to_rechnung))

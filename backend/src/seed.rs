@@ -68,9 +68,8 @@ pub async fn bootstrap(db: &Db, cfg: &Config) -> Result<()> {
         let name = cfg.mandant_name.as_deref().unwrap_or("PKV-Familie");
         import_from_env(db, name, email, password).await?;
     } else {
-        tracing::warn!(
-            "DB ist leer und weder SEED_FILE noch ADMIN_EMAIL/ADMIN_PASSWORD gesetzt. \
-             Die App ist ohne Login nicht nutzbar."
+        tracing::info!(
+            "DB ist leer. Ersteinrichtung über /setup im Browser durchführen."
         );
     }
 
