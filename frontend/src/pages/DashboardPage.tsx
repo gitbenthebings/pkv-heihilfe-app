@@ -1,519 +1,501 @@
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getDashboard } from '../api/dashboard'
-import { useJahr } from '../context/JahrContext'
+import { addBelegToRechnung } from '../api/belege'
 import RechnungDetailSlider from '../components/RechnungDetailSlider'
-import type { PipelineData, BescheidSummary, OffenerAntragSummary, BreIndikator } from '../types'
+import BelegPicker from '../components/BelegPicker'
+import type {
+  DashboardData,
+  DashboardRechnung,
+  BhGruppe,
+  PkvGruppe,
+  LaufenderAntrag,
+  BescheidSummary,
+  BreIndikator,
+} from '../types'
+// BreIndikator still used in BreAmpel + sidebar
 
 // ── Formatter ─────────────────────────────────────────────────────────────────
 
 function fmt(n: number) {
   return (n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 }
-function fmtS(n: number) {
-  return Math.round(n || 0).toLocaleString('de-DE') + ' €'
-}
-function gruss() {
-  const h = new Date().getHours()
-  if (h < 12) return 'Guten Morgen'
-  if (h < 18) return 'Guten Tag'
-  return 'Guten Abend'
-}
-function fmtDatum(s: string) {
-  const parts = s.slice(0, 10).split('-')
-  return `${parts[2]}.${parts[1]}.`
+function fmtD(s: string) {
+  const p = s.slice(0, 10).split('-')
+  return `${p[2]}.${p[1]}.${p[0].slice(2)}`
 }
 
-// ── Card ──────────────────────────────────────────────────────────────────────
+// ── Sidebar-Pattern (identisch zu BelegePage) ─────────────────────────────────
 
-function Card({ children, padding = '16px 18px', style = {} }: {
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{
+        fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)',
+        letterSpacing: '0.07em', textTransform: 'uppercase',
+        marginBottom: 8, padding: '0 4px',
+      }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function FilterRow({
+  label, count, active, dot, onClick,
+}: { label: string; count: number; active: boolean; dot?: string; onClick: () => void }) {
+  const [hov, setHov] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 9,
+        padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
+        background: active ? 'var(--row-active)' : hov ? 'var(--row-hover)' : 'transparent',
+        transition: 'background 0.12s',
+      }}
+    >
+      {dot && <span style={{ width: 8, height: 8, borderRadius: 3, background: dot, flexShrink: 0 }} />}
+      <span style={{
+        flex: 1, fontSize: 13,
+        color: active ? 'var(--text)' : 'var(--text-muted)',
+        fontWeight: active ? 600 : 400,
+      }}>{label}</span>
+      {count > 0 && (
+        <span style={{
+          fontSize: 11, color: 'var(--text-subtle)',
+          background: active ? 'var(--surface-hi)' : 'transparent',
+          borderRadius: 10, padding: '1px 7px',
+          minWidth: 22, textAlign: 'center',
+          fontVariantNumeric: 'tabular-nums',
+        }}>{count}</span>
+      )}
+    </div>
+  )
+}
+
+// ── KPI-Chip ──────────────────────────────────────────────────────────────────
+
+function KpiChip({ label, value, sub, tone }: {
+  label: string; value: string; sub?: string; tone: string
+}) {
+  return (
+    <div style={{
+      flex: 1, minWidth: 160,
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 10, padding: '12px 16px',
+      borderLeft: `3px solid var(--${tone})`,
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: `var(--${tone})`, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 3 }}>{sub}</div>}
+    </div>
+  )
+}
+
+// ── Rechnung-Zeile mit Beleg-Badge ────────────────────────────────────────────
+
+function RechnungZeile({ r, onOpen, onBeleg }: {
+  r: DashboardRechnung
+  onOpen: () => void
+  onBeleg: () => void
+}) {
+  const [hov, setHov] = useState(false)
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto auto auto',
+        alignItems: 'center',
+        gap: 10,
+        padding: '8px 12px',
+        borderRadius: 7,
+        background: hov ? 'var(--row-hover)' : 'transparent',
+        transition: 'background 0.1s',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      onClick={onOpen}
+    >
+      {/* Info */}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {r.leistungserbringer_name ?? '–'}&ensp;
+          <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontWeight: 400 }}>{r.person_name}</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 1 }}>
+          {fmtD(r.datum)}
+          {r.zahlungsziel && <>&ensp;·&ensp;fällig {fmtD(r.zahlungsziel)}</>}
+        </div>
+      </div>
+      {/* Betrag */}
+      <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{fmt(r.betrag)}</div>
+        {r.voraussichtlich > 0 && (
+          <div style={{ fontSize: 10, color: 'var(--text-subtle)' }}>~{fmt(r.voraussichtlich)} erw.</div>
+        )}
+      </div>
+      {/* Beleg-Badge */}
+      <button
+        onClick={e => { e.stopPropagation(); onBeleg() }}
+        title={r.beleg_count > 0 ? `${r.beleg_count} Beleg(e) verknüpft` : 'Beleg verknüpfen'}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          padding: '3px 8px', borderRadius: 6, border: '1px solid',
+          cursor: 'pointer', fontSize: 11, fontWeight: 600,
+          flexShrink: 0,
+          background: r.beleg_count > 0 ? 'var(--green-dim)' : 'var(--amber-dim)',
+          borderColor: r.beleg_count > 0 ? 'color-mix(in srgb, var(--green) 30%, transparent)' : 'color-mix(in srgb, var(--amber) 30%, transparent)',
+          color: r.beleg_count > 0 ? 'var(--green)' : 'var(--amber)',
+        }}
+      >
+        {r.beleg_count > 0 ? `📎 ${r.beleg_count}` : '+ Beleg'}
+      </button>
+    </div>
+  )
+}
+
+// ── Aktions-Kachel ────────────────────────────────────────────────────────────
+
+function AktionsKachel({ title, sub, tone, children, onAlle }: {
+  title: string
+  sub: string
+  tone: string
   children: React.ReactNode
-  padding?: string
-  style?: React.CSSProperties
+  onAlle?: () => void
 }) {
   return (
     <div style={{
       background: 'var(--surface)',
       border: '1px solid var(--border)',
       borderRadius: 12,
-      padding,
-      ...style,
+      overflow: 'hidden',
     }}>
-      {children}
-    </div>
-  )
-}
-
-// ── Section Label ─────────────────────────────────────────────────────────────
-
-function SectionLabel({ children, action, onAction }: {
-  children: React.ReactNode
-  action?: string
-  onAction?: () => void
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
+      <div style={{
+        padding: '11px 16px 10px',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderLeft: `3px solid var(--${tone})`,
+      }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{title}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 2 }}>{sub}</div>
+        </div>
+        {onAlle && (
+          <button
+            onClick={onAlle}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 12, color: 'var(--primary)', fontWeight: 600, padding: '3px 8px',
+            }}
+          >
+            Anträge →
+          </button>
+        )}
+      </div>
+      <div style={{ padding: '8px 4px' }}>
         {children}
       </div>
-      {action && (
-        <span
-          onClick={onAction}
-          style={{ fontSize: 13, color: 'var(--primary)', cursor: 'pointer', fontWeight: 500, whiteSpace: 'nowrap' }}
-        >
-          {action} →
-        </span>
-      )}
     </div>
   )
 }
 
-// ── Hero ──────────────────────────────────────────────────────────────────────
+// ── BH-Einreichen-Gruppe ──────────────────────────────────────────────────────
 
-function HeroSection({ name, jahr, pipeline_bh, pipeline_pkv }: {
-  name: string
-  jahr: number
-  pipeline_bh: PipelineData
-  pipeline_pkv: PipelineData
+function BhGruppeBlock({ gruppe, onOpen, onBeleg }: {
+  gruppe: BhGruppe
+  onOpen: (id: string) => void
+  onBeleg: (id: string) => void
 }) {
-  const erwartetBH = pipeline_bh.einreichbar.voraussichtlich + pipeline_bh.eingereicht.voraussichtlich
-  const erwartetPKV = pipeline_pkv.einreichbar.voraussichtlich + pipeline_pkv.eingereicht.voraussichtlich
-  const erstattetGesamt = pipeline_bh.erstattet.tatsaechlich + pipeline_pkv.erstattet.tatsaechlich
-
   return (
-    <div style={{
-      marginBottom: 14,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 18,
-      flexWrap: 'wrap',
-    }}>
-      <div>
-        <div style={{
-          fontSize: 12, color: 'var(--text-subtle)', fontWeight: 600,
-          letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 3,
-        }}>
-          Dashboard · {jahr}
-        </div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
-          {gruss()}, {name}.
-        </h1>
-      </div>
-
+    <div style={{ marginBottom: 8 }}>
       <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, display: 'flex', overflow: 'hidden',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '6px 12px 4px',
       }}>
-        <div style={{ padding: '11px 18px', borderRight: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 3 }}>
-            VORAUSSICHTL. BEIHILFE
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--blue)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-            {fmt(erwartetBH)}
-          </div>
-        </div>
-        <div style={{ padding: '11px 18px', borderRight: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 3 }}>
-            VORAUSSICHTL. PKV
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-            {fmt(erwartetPKV)}
-          </div>
-        </div>
-        <div style={{ padding: '11px 18px', background: 'var(--surface-alt)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', marginBottom: 3 }}>
-            ERSTATTET {jahr} <span style={{ color: 'var(--green)', marginLeft: 3 }}>↑</span>
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-            {fmt(erstattetGesamt)}
-          </div>
-        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', letterSpacing: '0.04em' }}>
+          {gruppe.beihilfestelle_name}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+          ~{fmt(gruppe.voraussichtlich_gesamt)} erw.
+        </span>
       </div>
+      {gruppe.rechnungen.map(r => (
+        <RechnungZeile
+          key={r.id}
+          r={r}
+          onOpen={() => onOpen(r.id)}
+          onBeleg={() => onBeleg(r.id)}
+        />
+      ))}
     </div>
   )
 }
 
-// ── Pipeline Stage ────────────────────────────────────────────────────────────
+// ── PKV-Gruppe ────────────────────────────────────────────────────────────────
 
-const STAGE_TONES: Record<string, string> = {
-  einreichbar: 'amber',
-  eingereicht: 'blue',
-  erstattet: 'green',
-  abgelehnt: 'rose',
-}
-
-function PipelineStage({ label, value, sub, anzahl, isLast }: {
-  label: string
-  value: number
-  sub: string
-  anzahl: number
+function PkvGruppeBlock({ gruppe, onOpen, onBeleg, isLast }: {
+  gruppe: PkvGruppe
+  onOpen: (id: string) => void
+  onBeleg: (id: string) => void
   isLast: boolean
 }) {
-  const tone = STAGE_TONES[label.toLowerCase()] ?? 'blue'
   return (
-    <div style={{ flex: 1, display: 'flex', alignItems: 'stretch' }}>
-      <div style={{ flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-            {label}
-          </span>
-          <span style={{
-            background: `var(--${tone}-dim)`, color: `var(--${tone})`,
-            fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
-            fontVariantNumeric: 'tabular-nums',
-          }}>{anzahl}</span>
-        </div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: `var(--${tone})`, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
-          {fmtS(value)}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
-          {sub}
-        </div>
+    <div style={{
+      marginBottom: isLast ? 0 : 4,
+      paddingBottom: isLast ? 0 : 12,
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 12px 4px',
+        background: 'var(--surface-alt)',
+        margin: '0 4px',
+        borderRadius: 6,
+        marginBottom: 4,
+      }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>
+          {gruppe.pkv_name}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+          {gruppe.anzahl} Rechnung{gruppe.anzahl !== 1 ? 'en' : ''} · ~{fmt(gruppe.voraussichtlich_gesamt)} erw.
+        </span>
       </div>
-      {!isLast && (
-        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, padding: '0 3px' }}>
-          <svg width="12" height="12" viewBox="0 0 16 16" style={{ color: 'var(--border-hi)' }}>
-            <path d="M5 3 L10 8 L5 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-      )}
+      {gruppe.rechnungen.map(r => (
+        <RechnungZeile
+          key={r.id}
+          r={r}
+          onOpen={() => onOpen(r.id)}
+          onBeleg={() => onBeleg(r.id)}
+        />
+      ))}
     </div>
   )
 }
 
-// ── Pipeline Card ─────────────────────────────────────────────────────────────
-
-function PipelineCard({ title, data, accentColor, accentDim, satzInfo, jahr }: {
-  title: string
-  data: PipelineData
-  accentColor: string
-  accentDim: string
-  satzInfo: string
-  jahr: number
-}) {
-  const stages = [
-    {
-      label: 'Einreichbar',
-      value: data.einreichbar.voraussichtlich,
-      sub: `v. ${fmtS(data.einreichbar.brutto)} brutto`,
-      anzahl: data.einreichbar.anzahl,
-    },
-    {
-      label: 'Eingereicht',
-      value: data.eingereicht.voraussichtlich,
-      sub: `v. ${fmtS(data.eingereicht.brutto)} brutto`,
-      anzahl: data.eingereicht.anzahl,
-    },
-    {
-      label: 'Erstattet',
-      value: data.erstattet.tatsaechlich,
-      sub: 'tatsächlich',
-      anzahl: data.erstattet.anzahl,
-    },
-    {
-      label: 'Abgelehnt',
-      value: data.abgelehnt.tatsaechlich,
-      sub: 'tatsächlich',
-      anzahl: data.abgelehnt.anzahl,
-    },
-  ]
-
-  const offenBetrag = data.einreichbar.voraussichtlich + data.eingereicht.voraussichtlich
-
-  return (
-    <Card padding="0">
-      <div style={{
-        padding: '10px 16px 9px',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-      }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.09em', textTransform: 'uppercase' }}>
-            {title} · {jahr}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {satzInfo}
-          </div>
-        </div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          background: accentDim, color: accentColor,
-          borderRadius: 14, padding: '3px 11px', flexShrink: 0,
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em' }}>OFFEN</span>
-          <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
-            {fmtS(offenBetrag)}
-          </span>
-        </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'stretch', padding: '2px 4px' }}>
-        {stages.map((s, i) => (
-          <PipelineStage key={s.label} {...s} isLast={i === stages.length - 1} />
-        ))}
-      </div>
-    </Card>
-  )
-}
-
-// ── Bescheide Bar Chart ───────────────────────────────────────────────────────
-
-function BescheideChart({ bescheide, onAlle }: {
-  bescheide: BescheidSummary[]
-  onAlle: () => void
-}) {
-  const maxBetrag = Math.max(...bescheide.map(b => b.erstattet + b.abgelehnt), 1)
-
-  return (
-    <Card>
-      <SectionLabel action="Alle" onAction={onAlle}>Letzte Bescheide</SectionLabel>
-      {bescheide.length === 0 ? (
-        <p style={{ fontSize: 13, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine Bescheide vorhanden.</p>
-      ) : (
-        <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {bescheide.map((b) => {
-              const eingereicht = b.erstattet + b.abgelehnt
-              const widthPct = eingereicht > 0 ? (eingereicht / maxBetrag) * 100 : 0
-              const erstattetPct = eingereicht > 0 ? (b.erstattet / eingereicht) * 100 : 0
-              const kurz = `${b.antrag_typ === 'pkv' ? 'P' : 'B'}-${String(b.referenz_nr).padStart(3, '0')}`
-              return (
-                <div
-                  key={b.id}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '60px 1fr 84px',
-                    alignItems: 'center',
-                    gap: 10,
-                    opacity: b.overridden ? 0.4 : 1,
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                      {fmtDatum(b.bescheid_datum)}
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: b.antrag_typ === 'pkv' ? 'var(--teal)' : 'var(--blue)' }}>
-                      {b.stelle ?? kurz}
-                    </div>
-                  </div>
-                  <div style={{ position: 'relative', height: 16 }}>
-                    <div style={{
-                      display: 'flex', height: '100%', borderRadius: 3, overflow: 'hidden',
-                      width: `${widthPct}%`, background: 'var(--surface-alt)',
-                    }}>
-                      <div style={{ width: `${erstattetPct}%`, background: 'var(--green)', transition: 'width .4s ease' }} />
-                      <div style={{ width: `${100 - erstattetPct}%`, background: 'var(--rose)', opacity: 0.85, transition: 'width .4s ease' }} />
-                    </div>
-                    {b.ws && (
-                      <span style={{
-                        position: 'absolute', left: `calc(${widthPct}% + 4px)`, top: '50%',
-                        transform: 'translateY(-50%)',
-                        fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
-                        background: 'var(--amber-dim)', color: 'var(--amber)',
-                        border: '1px solid rgba(232,160,48,.25)',
-                        letterSpacing: '.04em', whiteSpace: 'nowrap',
-                      }}>WSP</span>
-                    )}
-                  </div>
-                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', fontVariantNumeric: 'tabular-nums' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>{fmtS(b.erstattet)}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>v. {fmtS(eingereicht)}</div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <div style={{
-            display: 'flex', gap: 12, marginTop: 10, paddingTop: 9,
-            borderTop: '1px solid var(--row-border)',
-            fontSize: 11, color: 'var(--text-muted)',
-          }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--green)', display: 'inline-block' }} /> erstattet
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--rose)', display: 'inline-block' }} /> abgelehnt
-            </span>
-            <span style={{ marginLeft: 'auto', color: 'var(--text-subtle)' }}>{bescheide.length} Bescheide</span>
-          </div>
-        </>
-      )}
-    </Card>
-  )
-}
-
-// ── Offene Anträge ────────────────────────────────────────────────────────────
-
-const STATUS_TONE: Record<string, string> = {
-  entwurf:        'text-subtle',
-  versendet:      'blue',
-  in_bearbeitung: 'amber',
-  beschieden:     'green',
-}
+// ── Laufende Anträge ──────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
-  entwurf:        'Entwurf',
-  versendet:      'Versendet',
-  in_bearbeitung: 'In Bearb.',
-  beschieden:     'Beschieden',
+  versendet: 'Versendet',
+  in_bearbeitung: 'In Bearbeitung',
 }
 
-function OffeneAntraegeSection({ antraege, onAlle, onAntrag }: {
-  antraege: OffenerAntragSummary[]
-  onAlle: () => void
+function LaufendeAntraege({ antraege, onAntrag }: {
+  antraege: LaufenderAntrag[]
   onAntrag: (id: string) => void
 }) {
+  if (antraege.length === 0) return null
   return (
-    <Card>
-      <SectionLabel action="Alle" onAction={onAlle}>Offene Anträge</SectionLabel>
-      {antraege.length === 0 ? (
-        <p style={{ fontSize: 13, color: 'var(--text-subtle)', fontStyle: 'italic' }}>Keine offenen Anträge.</p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {antraege.map((a) => {
-            const tone = STATUS_TONE[a.status] ?? 'text-muted'
-            const typTone = a.typ === 'beihilfe' ? 'blue' : 'teal'
-            return (
-              <div
-                key={a.id}
-                onClick={() => onAntrag(a.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 10px', borderRadius: 6,
-                  background: 'var(--surface-alt)', cursor: 'pointer',
-                }}
-              >
-                <span style={{
-                  width: 4, height: 32, borderRadius: 2,
-                  background: `var(--${tone})`, flexShrink: 0,
-                }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontWeight: 600 }}>{a.nr}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
-                      background: `var(--${typTone}-dim)`, color: `var(--${typTone})`,
-                    }}>
-                      {a.typ === 'beihilfe' ? 'BH' : 'PKV'}
-                    </span>
-                  </div>
-                  <div style={{
-                    fontSize: 13, color: a.titel ? 'var(--text)' : 'var(--text-subtle)',
-                    fontWeight: 500, fontStyle: a.titel ? 'normal' : 'italic',
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>
-                    {a.titel ?? 'Kein Titel'}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{
-                    fontSize: 10, color: `var(--${tone})`, fontWeight: 700,
-                    letterSpacing: '0.04em', textTransform: 'uppercase',
-                  }}>
-                    {STATUS_LABEL[a.status] ?? a.status}
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtS(a.betrag)}
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </Card>
-  )
-}
-
-// ── BRE / Beitragsrückerstattung ──────────────────────────────────────────────
-
-function BeitragsRueckSection({ bre }: { bre: BreIndikator[] }) {
-  if (bre.length === 0) return (
-    <Card>
-      <SectionLabel>PKV-Beitragsrückerstattung</SectionLabel>
-      <p style={{ fontSize: 13, color: 'var(--text-subtle)', fontStyle: 'italic' }}>
-        Keine BRE-Schwellen konfiguriert.
-      </p>
-    </Card>
-  )
-
-  return (
-    <Card>
-      <SectionLabel>PKV-Beitragsrückerstattung</SectionLabel>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {bre.map((p) => {
-          const hasSchwelle = p.bre_schwelle > 0
-          const eingereichtPct = hasSchwelle ? Math.min((p.pkv_eingereicht / p.bre_schwelle) * 100, 100) : 0
-          const offenPct = hasSchwelle
-            ? Math.min((p.pkv_offen / p.bre_schwelle) * 100, 100 - eingereichtPct)
-            : 0
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 12, overflow: 'hidden',
+    }}>
+      <div style={{ padding: '11px 16px 10px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Laufende Anträge</div>
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 2 }}>Warten auf Bescheid · hier eintragen wenn Post eingegangen</div>
+      </div>
+      <div style={{ padding: '6px 4px' }}>
+        {antraege.map(a => {
+          const typTone = a.typ === 'pkv' ? 'teal' : 'blue'
+          const warnt = (a.tage_offen ?? 0) > 30
           return (
-            <div key={p.person_id} style={{ padding: '2px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.person_name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
-                  {hasSchwelle
-                    ? `Schw. ${fmtS(p.bre_schwelle)}`
-                    : 'keine Schw.'}
+            <div
+              key={a.id}
+              onClick={() => onAntrag(a.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '9px 12px', cursor: 'pointer', borderRadius: 7,
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--row-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              <span style={{
+                width: 4, minHeight: 32, borderRadius: 2,
+                background: `var(--${typTone})`, flexShrink: 0,
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5,
+                    background: `var(--${typTone}-dim)`, color: `var(--${typTone})`,
+                  }}>
+                    {a.typ === 'pkv' ? 'PKV' : 'BH'}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+                    {a.nr}
+                  </span>
+                  {a.stelle && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {a.stelle}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 2 }}>
+                  {a.anzahl_rechnungen} Rechnung{a.anzahl_rechnungen !== 1 ? 'en' : ''} · {fmt(a.betrag)}
                 </div>
               </div>
-              {hasSchwelle ? (
-                <div style={{ position: 'relative', background: 'var(--surface-alt)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                  <div style={{
-                    position: 'absolute', left: 0, top: 0, bottom: 0,
-                    width: `${eingereichtPct}%`, background: 'var(--blue)',
-                  }} />
-                  <div style={{
-                    position: 'absolute', left: `${eingereichtPct}%`, top: 0, bottom: 0,
-                    width: `${offenPct}%`, background: 'var(--amber)', opacity: 0.7,
-                  }} />
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: warnt ? 'var(--amber)' : 'var(--text-subtle)', letterSpacing: '0.03em' }}>
+                  {STATUS_LABEL[a.status] ?? a.status}
                 </div>
-              ) : (
-                <div style={{ fontSize: 12, color: 'var(--text-subtle)', fontStyle: 'italic' }}>
-                  Schwelle bereits ausgeschöpft.
-                </div>
-              )}
-              {hasSchwelle && (
-                <div style={{ display: 'flex', gap: 12, marginTop: 5, fontSize: 11, color: 'var(--text-subtle)' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--blue)', display: 'inline-block' }} />
-                    {fmtS(p.pkv_eingereicht)} eingereicht
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--amber)', display: 'inline-block' }} />
-                    {fmtS(p.pkv_offen)} offen
-                  </span>
-                </div>
-              )}
+                {a.tage_offen !== null && (
+                  <div style={{ fontSize: 10, color: warnt ? 'var(--amber)' : 'var(--text-subtle)' }}>
+                    {a.tage_offen} Tage{warnt ? ' ⚠' : ''}
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
       </div>
-    </Card>
+    </div>
   )
 }
 
-// ── Loading Skeleton ──────────────────────────────────────────────────────────
+// ── Letzte Bescheide ──────────────────────────────────────────────────────────
 
-function Skeleton({ h = 120 }: { h?: number }) {
+function LetzteDescheide({ bescheide, onAlle }: {
+  bescheide: BescheidSummary[]
+  onAlle: () => void
+}) {
+  if (bescheide.length === 0) return null
+  const max = Math.max(...bescheide.map(b => b.erstattet + b.abgelehnt), 1)
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 12, overflow: 'hidden',
+    }}>
+      <div style={{ padding: '11px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Letzte Bescheide</div>
+        <button onClick={onAlle} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--primary)', fontWeight: 600 }}>
+          Alle →
+        </button>
+      </div>
+      <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {bescheide.map(b => {
+          const gesamt = b.erstattet + b.abgelehnt
+          const wPct = gesamt > 0 ? (gesamt / max) * 100 : 0
+          const ePct = gesamt > 0 ? (b.erstattet / gesamt) * 100 : 0
+          const typTone = b.antrag_typ === 'pkv' ? 'teal' : 'blue'
+          return (
+            <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto 72px', alignItems: 'center', gap: 10, opacity: b.overridden ? 0.4 : 1 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {fmtD(b.bescheid_datum)}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: `var(--${typTone})`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {b.stelle ?? (b.antrag_typ === 'pkv' ? 'PKV' : 'Beihilfe')}
+                  </span>
+                </div>
+              </div>
+              <div style={{ position: 'relative', height: 14 }}>
+                <div style={{ display: 'flex', height: '100%', borderRadius: 3, overflow: 'hidden', width: `${wPct}%`, minWidth: 4 }}>
+                  <div style={{ width: `${ePct}%`, background: 'var(--green)' }} />
+                  <div style={{ width: `${100 - ePct}%`, background: 'var(--rose)', opacity: 0.8 }} />
+                </div>
+                {b.ws && (
+                  <span style={{
+                    position: 'absolute', left: `calc(${wPct}% + 4px)`, top: '50%', transform: 'translateY(-50%)',
+                    fontSize: 9, fontWeight: 700, padding: '1px 4px', borderRadius: 4,
+                    background: 'var(--amber-dim)', color: 'var(--amber)',
+                  }}>WSP</span>
+                )}
+              </div>
+              <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>{fmt(b.erstattet)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-subtle)' }}>v. {fmt(gesamt)}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── BRE-Ampel ─────────────────────────────────────────────────────────────────
+
+function BreAmpel({ bre }: { bre: BreIndikator[] }) {
+  const mitSchwelle = bre.filter(b => b.bre_schwelle > 0)
+  if (mitSchwelle.length === 0) return null
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 12, overflow: 'hidden',
+    }}>
+      <div style={{ padding: '11px 16px 10px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>PKV-Beitragsrückerstattung</div>
+      </div>
+      <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {mitSchwelle.map(p => {
+          const eingePct = Math.min((p.pkv_eingereicht / p.bre_schwelle) * 100, 100)
+          const offenPct = Math.min((p.pkv_offen / p.bre_schwelle) * 100, 100 - eingePct)
+          const warnt = p.bre_spielraum < 0
+          return (
+            <div key={p.person_id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{p.person_name}</span>
+                <span style={{ fontSize: 11, color: warnt ? 'var(--rose)' : 'var(--text-subtle)' }}>
+                  Schw. {fmt(p.bre_schwelle)}{warnt ? ' ⚠ überschritten' : ''}
+                </span>
+              </div>
+              <div style={{ position: 'relative', background: 'var(--surface-alt)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${eingePct}%`, background: 'var(--blue)' }} />
+                <div style={{ position: 'absolute', left: `${eingePct}%`, top: 0, bottom: 0, width: `${offenPct}%`, background: 'var(--amber)', opacity: 0.7 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 10, color: 'var(--text-subtle)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--blue)', display: 'inline-block' }} />
+                  {fmt(p.pkv_eingereicht)} eingereicht
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--amber)', display: 'inline-block' }} />
+                  {fmt(p.pkv_offen)} offen
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+
+function Skel({ h = 100 }: { h?: number }) {
   return (
     <div style={{
       height: h, borderRadius: 12,
       background: 'var(--surface)', border: '1px solid var(--border)',
-      animation: 'pulse 1.5s ease-in-out infinite',
     }} />
   )
 }
 
+// ── Institutionsfilter-Typ ────────────────────────────────────────────────────
+
+type InstFilter = 'alle' | `bh:${string}` | `pkv:${string}`
+
 // ── Hauptseite ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const qc = useQueryClient()
   const navigate = useNavigate()
-  const { jahr } = useJahr()
+  const qc = useQueryClient()
 
-  const sliderRechnungId = searchParams.get('rechnung')
+  const [instFilter, setInstFilter] = useState<InstFilter>('alle')
+  const [sliderRechnungId, setSliderRechnungId] = useState<string | null>(null)
+  const [belegPickerRechnungId, setBelegPickerRechnungId] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
@@ -521,92 +503,274 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   })
 
-  function closeSlider() {
-    setSearchParams(p => { p.delete('rechnung'); return p })
-  }
-  function goToAntraege(antragId?: string) {
-    if (antragId) {
-      navigate(`/beihilfe-antraege?selected=${antragId}`)
-    } else {
-      navigate('/beihilfe-antraege')
-    }
+  function closeSlider() { setSliderRechnungId(null) }
+  function goToAntraege(id?: string) {
+    navigate(id ? `/beihilfe-antraege?selected=${id}` : '/beihilfe-antraege')
   }
 
-  const displayJahr = data?.aktuelles_jahr ?? jahr
+  async function handleBelegSelect(beleg: { id: string }) {
+    if (!belegPickerRechnungId) return
+    await addBelegToRechnung(belegPickerRechnungId, beleg.id)
+    setBelegPickerRechnungId(null)
+    qc.invalidateQueries({ queryKey: ['dashboard'] })
+  }
+
+  // ── Sidebar-Zählungen ──────────────────────────────────────────────────────
+  const totalBezahlen = data?.bezahlen.length ?? 0
+  const totalBh = data?.bh_gruppen.reduce((s, g) => s + g.anzahl, 0) ?? 0
+  const totalPkv = data?.pkv_gruppen.reduce((s, g) => s + g.anzahl, 0) ?? 0
+  const totalAlle = totalBezahlen + totalBh + totalPkv
+
+  // ── Institutionsfilter anwenden ────────────────────────────────────────────
+  const visibleBh = data?.bh_gruppen.filter(g =>
+    instFilter === 'alle' || instFilter === `bh:${g.beihilfestelle_id}`
+  ) ?? []
+  const visiblePkv = data?.pkv_gruppen.filter(g =>
+    instFilter === 'alle' || instFilter === `pkv:${g.pkv_id ?? ''}`
+  ) ?? []
+  const showBezahlen = instFilter === 'alle'
 
   if (isLoading || !data) {
     return (
-      <div>
-        <div style={{ marginBottom: 14, display: 'flex', gap: 18, alignItems: 'center', justifyContent: 'space-between' }}>
-          <Skeleton h={60} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <Skeleton h={140} />
-          <Skeleton h={140} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: 12 }}>
-          <Skeleton h={240} />
-          <Skeleton h={240} />
-          <Skeleton h={240} />
+      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+        <div style={{ width: 220, background: 'var(--surface)', borderRight: '1px solid var(--border)' }} />
+        <div style={{ flex: 1, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Skel h={56} />
+          <div style={{ display: 'flex', gap: 12 }}><Skel h={80} /><Skel h={80} /><Skel h={80} /><Skel h={80} /></div>
+          <Skel h={200} />
+          <Skel h={160} />
         </div>
       </div>
     )
   }
 
+  const { kpis, bezahlen, bh_gruppen, pkv_gruppen, laufende_antraege, letzte_bescheide, bre, aktuelles_jahr, benutzer_name } = data as DashboardData
+
   return (
     <>
-      <div>
+      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
-        {/* Hero */}
-        <HeroSection
-          name={data.benutzer_name}
-          jahr={displayJahr}
-          pipeline_bh={data.beihilfe_pipeline}
-          pipeline_pkv={data.pkv_pipeline}
-        />
+        {/* ── Sidebar ── */}
+        <div style={{
+          width: 220, minWidth: 220, flexShrink: 0,
+          borderRight: '1px solid var(--border)',
+          background: 'var(--surface)',
+          overflowY: 'auto',
+          padding: '18px 14px 16px',
+        }}>
+          <FilterGroup title="Institution">
+            <FilterRow
+              label="Alle"
+              count={totalAlle}
+              active={instFilter === 'alle'}
+              dot="var(--primary)"
+              onClick={() => setInstFilter('alle')}
+            />
+            {bh_gruppen.map(g => (
+              <FilterRow
+                key={g.beihilfestelle_id}
+                label={g.beihilfestelle_name}
+                count={g.anzahl}
+                active={instFilter === `bh:${g.beihilfestelle_id}`}
+                dot="var(--blue)"
+                onClick={() => setInstFilter(`bh:${g.beihilfestelle_id}`)}
+              />
+            ))}
+            {pkv_gruppen.map(g => (
+              <FilterRow
+                key={g.pkv_id ?? 'pkv'}
+                label={g.pkv_name}
+                count={g.anzahl}
+                active={instFilter === `pkv:${g.pkv_id ?? ''}`}
+                dot="var(--teal)"
+                onClick={() => setInstFilter(`pkv:${g.pkv_id ?? ''}`)}
+              />
+            ))}
+          </FilterGroup>
 
-        {/* Pipeline-Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <PipelineCard
-            title="Beihilfe-Pipeline"
-            data={data.beihilfe_pipeline}
-            accentColor="var(--blue)"
-            accentDim="var(--blue-dim)"
-            satzInfo="gem. Beihilfesatz"
-            jahr={displayJahr}
-          />
-          <PipelineCard
-            title="PKV-Pipeline"
-            data={data.pkv_pipeline}
-            accentColor="var(--teal)"
-            accentDim="var(--teal-dim)"
-            satzInfo="gem. PKV-Tarifsatz"
-            jahr={displayJahr}
-          />
+          {laufende_antraege.length > 0 && (
+            <FilterGroup title="Laufend">
+              <FilterRow
+                label="Anträge"
+                count={laufende_antraege.length}
+                active={false}
+                dot="var(--amber)"
+                onClick={() => goToAntraege()}
+              />
+            </FilterGroup>
+          )}
+
+          {bre.filter(b => b.bre_schwelle > 0).length > 0 && (
+            <FilterGroup title="PKV-BRE">
+              {bre.filter(b => b.bre_schwelle > 0).map(b => {
+                const warnt = b.bre_spielraum < 0
+                return (
+                  <div key={b.person_id} style={{ padding: '4px 10px 2px' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, marginBottom: 4 }}>{b.person_name}</div>
+                    <div style={{ background: 'var(--surface-alt)', borderRadius: 3, height: 5, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${Math.min((b.pkv_eingereicht / b.bre_schwelle) * 100, 100)}%`,
+                        height: '100%',
+                        background: warnt ? 'var(--rose)' : 'var(--blue)',
+                      }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </FilterGroup>
+          )}
         </div>
 
-        {/* Untere Dreispalten-Zeile */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: 12 }}>
-          <BescheideChart
-            bescheide={data.letzte_bescheide}
-            onAlle={() => goToAntraege()}
-          />
-          <OffeneAntraegeSection
-            antraege={data.offene_antraege}
-            onAlle={() => goToAntraege()}
-            onAntrag={(id) => goToAntraege(id)}
-          />
-          <BeitragsRueckSection bre={data.bre} />
-        </div>
+        {/* ── Hauptbereich ── */}
+        <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: 'var(--bg)' }}>
 
+          {/* Toolbar */}
+          <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 2 }}>
+              Dashboard · {aktuelles_jahr}
+            </div>
+            <h1 style={{ fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
+              {benutzer_name}
+            </h1>
+          </div>
+
+          <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* KPI-Chips */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <KpiChip
+                label="Eigenkosten offen"
+                value={fmt(kpis.eigenkosten_offen)}
+                sub="unbezahlte Rechnungen"
+                tone="amber"
+              />
+              <KpiChip
+                label="Ausstehende Erstattung"
+                value={fmt(kpis.ausstehende_erstattung)}
+                sub="aus laufenden Anträgen"
+                tone="blue"
+              />
+              <KpiChip
+                label={`${aktuelles_jahr} erstattet`}
+                value={fmt(kpis.erstattet_ytd)}
+                sub="BH + PKV zusammen"
+                tone="green"
+              />
+              <KpiChip
+                label="Einzureichen"
+                value={String(kpis.einzureichen_anzahl)}
+                sub="Rechnungen bereit"
+                tone="text-muted"
+              />
+            </div>
+
+            {/* Bezahlen */}
+            {showBezahlen && bezahlen.length > 0 && (
+              <AktionsKachel
+                title="Rechnungen bezahlen"
+                sub={`${bezahlen.length} offen · ${fmt(bezahlen.reduce((s, r) => s + r.betrag, 0))} gesamt`}
+                tone="amber"
+              >
+                {bezahlen.map(r => (
+                  <RechnungZeile
+                    key={r.id}
+                    r={r}
+                    onOpen={() => setSliderRechnungId(r.id)}
+                    onBeleg={() => setBelegPickerRechnungId(r.id)}
+                  />
+                ))}
+              </AktionsKachel>
+            )}
+
+            {/* BH-Einreichen */}
+            {visibleBh.length > 0 && (
+              <AktionsKachel
+                title="Bei Beihilfe einreichen"
+                sub={`${visibleBh.reduce((s, g) => s + g.anzahl, 0)} Rechnungen · ${fmt(visibleBh.reduce((s, g) => s + g.voraussichtlich_gesamt, 0))} erwartet`}
+                tone="blue"
+                onAlle={() => goToAntraege()}
+              >
+                {visibleBh.map(g => (
+                  <BhGruppeBlock
+                    key={g.beihilfestelle_id}
+                    gruppe={g}
+                    onOpen={setSliderRechnungId}
+                    onBeleg={setBelegPickerRechnungId}
+                  />
+                ))}
+              </AktionsKachel>
+            )}
+
+            {/* PKV-Einreichen */}
+            {visiblePkv.length > 0 && (
+              <AktionsKachel
+                title="Bei PKV einreichen"
+                sub={`${visiblePkv.reduce((s, g) => s + g.anzahl, 0)} Rechnungen · ${fmt(visiblePkv.reduce((s, g) => s + g.voraussichtlich_gesamt, 0))} erwartet`}
+                tone="teal"
+                onAlle={() => goToAntraege()}
+              >
+                {visiblePkv.map((g, i) => (
+                  <PkvGruppeBlock
+                    key={g.pkv_id ?? 'pkv'}
+                    gruppe={g}
+                    onOpen={setSliderRechnungId}
+                    onBeleg={setBelegPickerRechnungId}
+                    isLast={i === visiblePkv.length - 1}
+                  />
+                ))}
+              </AktionsKachel>
+            )}
+
+            {/* Keine Aktionen */}
+            {!showBezahlen && visibleBh.length === 0 && visiblePkv.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-subtle)', fontSize: 13 }}>
+                Keine offenen Aktionen für diese Institution.
+              </div>
+            )}
+            {showBezahlen && bezahlen.length === 0 && bh_gruppen.length === 0 && pkv_gruppen.length === 0 && (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 12, padding: '32px 24px', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>✓</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>Alles erledigt</div>
+                <div style={{ fontSize: 12, color: 'var(--text-subtle)' }}>Keine offenen Aktionen.</div>
+              </div>
+            )}
+
+            {/* Statuszone */}
+            <LaufendeAntraege
+              antraege={laufende_antraege}
+              onAntrag={goToAntraege}
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+              <LetzteDescheide bescheide={letzte_bescheide} onAlle={() => goToAntraege()} />
+              <BreAmpel bre={bre} />
+            </div>
+
+          </div>
+        </div>
       </div>
 
+      {/* Slider & Picker */}
       <RechnungDetailSlider
         rechnungId={sliderRechnungId}
         onClose={closeSlider}
-        onUpdate={() => qc.invalidateQueries({ queryKey: ['rechnungen'] })}
-        onKopieren={(r) => navigate('/rechnungen', { state: { kopieVon: r } })}
+        onUpdate={() => {
+          qc.invalidateQueries({ queryKey: ['dashboard'] })
+          qc.invalidateQueries({ queryKey: ['rechnungen'] })
+        }}
+        onKopieren={r => navigate('/rechnungen', { state: { kopieVon: r } })}
       />
+
+      {belegPickerRechnungId && (
+        <BelegPicker
+          excludeIds={[]}
+          onSelect={handleBelegSelect}
+          onCancel={() => setBelegPickerRechnungId(null)}
+        />
+      )}
     </>
   )
 }

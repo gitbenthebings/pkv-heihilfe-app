@@ -1,5 +1,5 @@
 use axum::{extract::State, Json};
-use chrono::Datelike;
+use chrono::{Datelike, Local, NaiveDate};
 use serde::Serialize;
 use sqlx::Row;
 use std::collections::HashMap;
@@ -7,38 +7,60 @@ use std::collections::HashMap;
 use crate::{
     auth::AuthUser,
     errors::AppError,
-    repositories::{self, personen::list_by_mandant, rechnungen::list},
-    services::rechnungen::{mit_status, find_satz_fuer_datum, kanban_gruppe},
+    repositories::{
+        self,
+        beihilfestellen::list_by_mandant as list_beihilfestellen,
+        correspondents::list_by_mandant as list_correspondents,
+        personen::list_by_mandant,
+        pkv::list_by_mandant as list_pkv,
+        rechnungen::list,
+    },
+    services::rechnungen::{find_satz_fuer_datum, mit_status},
     models::RechnungMitStatus,
     AppState,
 };
 
-// ── Legacy structs (kept for backward compat) ────────────────────────────────
+// ── Typen ─────────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
-pub struct KanbanBoard {
-    pub neu: Vec<RechnungMitStatus>,
-    pub bezahlt: Vec<RechnungMitStatus>,
-    pub beihilfe_eingereicht: Vec<RechnungMitStatus>,
-    pub pkv_eingereicht: Vec<RechnungMitStatus>,
-    pub abgeschlossen: Vec<RechnungMitStatus>,
+pub struct DashboardKpis {
+    pub eigenkosten_offen: f64,
+    pub ausstehende_erstattung: f64,
+    pub erstattet_ytd: f64,
+    pub einzureichen_anzahl: i64,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DashboardRechnung {
+    pub id: String,
+    pub person_name: String,
+    pub betrag: f64,
+    pub datum: String,
+    pub zahlungsziel: Option<String>,
+    pub leistungserbringer_name: Option<String>,
+    pub voraussichtlich: f64,
+    pub beleg_count: i64,
 }
 
 #[derive(Serialize)]
-pub struct FinanzOverview {
-    pub offen_unbezahlt: f64,
-    pub offen_unbezahlt_beihilfe: f64,
-    pub offen_unbezahlt_pkv: f64,
-    pub bezahlt_pkv_offen: f64,
-    pub bezahlt_pkv_offen_pkv: f64,
-    pub bezahlt_beihilfe_offen: f64,
-    pub bezahlt_beihilfe_offen_beihilfe: f64,
-    pub abgeschlossen: f64,
-    pub abgeschlossen_beihilfe: f64,
-    pub abgeschlossen_pkv: f64,
+pub struct BhGruppe {
+    pub beihilfestelle_id: String,
+    pub beihilfestelle_name: String,
+    pub voraussichtlich_gesamt: f64,
+    pub anzahl: i64,
+    pub rechnungen: Vec<DashboardRechnung>,
 }
 
 #[derive(Serialize)]
+pub struct PkvGruppe {
+    pub pkv_id: Option<String>,
+    pub pkv_name: String,
+    pub voraussichtlich_gesamt: f64,
+    pub anzahl: i64,
+    pub rechnungen: Vec<DashboardRechnung>,
+}
+
+#[derive(Serialize, Clone)]
 pub struct BreIndikator {
     pub person_id: String,
     pub person_name: String,
@@ -48,30 +70,19 @@ pub struct BreIndikator {
     pub bre_spielraum: f64,
 }
 
-// ── Pipeline-Daten ────────────────────────────────────────────────────────────
-
 #[derive(Serialize)]
-pub struct PipelineStageOffen {
-    pub brutto: f64,
-    pub voraussichtlich: f64,
-    pub anzahl: i64,
+pub struct LaufenderAntrag {
+    pub id: String,
+    pub nr: String,
+    pub titel: Option<String>,
+    pub typ: String,
+    pub status: String,
+    pub stelle: Option<String>,
+    pub betrag: f64,
+    pub versendet_am: Option<String>,
+    pub tage_offen: Option<i64>,
+    pub anzahl_rechnungen: i64,
 }
-
-#[derive(Serialize)]
-pub struct PipelineStageAbgeschlossen {
-    pub tatsaechlich: f64,
-    pub anzahl: i64,
-}
-
-#[derive(Serialize)]
-pub struct PipelineData {
-    pub einreichbar: PipelineStageOffen,
-    pub eingereicht: PipelineStageOffen,
-    pub erstattet: PipelineStageAbgeschlossen,
-    pub abgelehnt: PipelineStageAbgeschlossen,
-}
-
-// ── Bescheid-Zusammenfassung ──────────────────────────────────────────────────
 
 #[derive(Serialize)]
 pub struct BescheidSummary {
@@ -87,46 +98,44 @@ pub struct BescheidSummary {
     pub abgelehnt: f64,
 }
 
-// ── Offener Antrag ────────────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-pub struct OffenerAntragSummary {
-    pub id: String,
-    pub nr: String,
-    pub titel: Option<String>,
-    pub typ: String,
-    pub status: String,
-    pub anzahl: i64,
-    pub betrag: f64,
-}
-
-// ── Dashboard-Antwort ─────────────────────────────────────────────────────────
-
 #[derive(Serialize)]
 pub struct DashboardData {
-    pub kanban: KanbanBoard,
-    pub finanzen: FinanzOverview,
-    pub bre: Vec<BreIndikator>,
     pub benutzer_name: String,
     pub aktuelles_jahr: i32,
-    pub beihilfe_pipeline: PipelineData,
-    pub pkv_pipeline: PipelineData,
+    pub kpis: DashboardKpis,
+    pub bezahlen: Vec<DashboardRechnung>,
+    pub bh_gruppen: Vec<BhGruppe>,
+    pub pkv_gruppen: Vec<PkvGruppe>,
+    pub laufende_antraege: Vec<LaufenderAntrag>,
     pub letzte_bescheide: Vec<BescheidSummary>,
-    pub offene_antraege: Vec<OffenerAntragSummary>,
+    pub bre: Vec<BreIndikator>,
 }
+
+// ── Handler ───────────────────────────────────────────────────────────────────
 
 pub async fn get(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<DashboardData>, AppError> {
-    // ── Personen & Rechnungen ─────────────────────────────────────────────────
+    // ── Stammdaten laden ──────────────────────────────────────────────────────
     let personen = list_by_mandant(&state.db, &auth.mandant_id).await?;
     let personen_map: HashMap<String, _> =
         personen.iter().map(|p| (p.id.clone(), p.clone())).collect();
+
     let satz_historie =
         repositories::personen_satz_historie::list_for_mandant(&state.db, &auth.mandant_id)
             .await?;
 
+    let correspondents = list_correspondents(&state.db, &auth.mandant_id).await?;
+    let correspondent_map: HashMap<String, String> =
+        correspondents.into_iter().map(|c| (c.id, c.name)).collect();
+
+    let pkvs = list_pkv(&state.db, &auth.mandant_id).await?;
+    let beihilfestellen = list_beihilfestellen(&state.db, &auth.mandant_id).await?;
+    let beihilfestellen_map: HashMap<String, String> =
+        beihilfestellen.into_iter().map(|b| (b.id, b.name)).collect();
+
+    // ── Rechnungen laden & Status berechnen ───────────────────────────────────
     let rechnungen = list(&state.db, &auth.mandant_id, None, false, None).await?;
     let rechnungen_mit_status: Vec<RechnungMitStatus> = rechnungen
         .into_iter()
@@ -139,6 +148,23 @@ pub async fn get(
         })
         .collect();
 
+    // ── Beleg-Zählung pro Rechnung ────────────────────────────────────────────
+    let beleg_count_rows = sqlx::query(
+        "SELECT rechnung_id, COUNT(*) AS cnt FROM rechnung_beleg GROUP BY rechnung_id",
+    )
+    .bind(&auth.mandant_id)
+    .fetch_all(&state.db)
+    .await?;
+    let beleg_count_map: HashMap<String, i64> = beleg_count_rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<String, _>("rechnung_id"),
+                row.get::<i64, _>("cnt"),
+            )
+        })
+        .collect();
+
     // ── Benutzer-Name ─────────────────────────────────────────────────────────
     let benutzer =
         repositories::benutzer::get(&state.db, &auth.benutzer_id, &auth.mandant_id).await?;
@@ -147,215 +173,212 @@ pub async fn get(
         .unwrap_or_else(|| "Benutzer".to_string());
 
     // ── Aktuelles Jahr ────────────────────────────────────────────────────────
-    let current_year = chrono::Local::now().year();
+    let current_year = Local::now().year();
     let current_year_str = format!("{}", current_year);
 
-    // ── Legacy Kanban & Finanzen ──────────────────────────────────────────────
-    let mut neu = vec![];
-    let mut bezahlt = vec![];
-    let mut beihilfe_eingereicht = vec![];
-    let mut pkv_eingereicht_kanban = vec![];
-    let mut abgeschlossen = vec![];
+    // ── PKV-Zuordnung aufbauen: person_id → (pkv_id, pkv_name) ───────────────
+    let mut person_pkv: HashMap<String, (String, String)> = HashMap::new();
+    let mut fallback_pkv: Option<(String, String)> = None;
 
-    let mut finanzen = FinanzOverview {
-        offen_unbezahlt: 0.0,
-        offen_unbezahlt_beihilfe: 0.0,
-        offen_unbezahlt_pkv: 0.0,
-        bezahlt_pkv_offen: 0.0,
-        bezahlt_pkv_offen_pkv: 0.0,
-        bezahlt_beihilfe_offen: 0.0,
-        bezahlt_beihilfe_offen_beihilfe: 0.0,
-        abgeschlossen: 0.0,
-        abgeschlossen_beihilfe: 0.0,
-        abgeschlossen_pkv: 0.0,
-    };
-
-    for r in &rechnungen_mit_status {
-        let betrag = r.betrag;
-        let bh = r.beihilfe_anteil_erwartet.unwrap_or(0.0);
-        let pkv = r.pkv_anteil_erwartet.unwrap_or(0.0);
-        let ist_bezahlt = r.zahlung_status == "bezahlt";
-
-        if !ist_bezahlt {
-            finanzen.offen_unbezahlt += betrag;
-            finanzen.offen_unbezahlt_beihilfe += bh;
-            finanzen.offen_unbezahlt_pkv += pkv;
+    for pkv in &pkvs {
+        if pkv.personen_ids.is_empty() {
+            if fallback_pkv.is_none() {
+                fallback_pkv = Some((pkv.id.clone(), pkv.name.clone()));
+            }
         } else {
-            let pkv_offen = r.pkv_status == "offen";
-            let bh_offen = r.beihilfe_status.as_deref() == Some("offen");
-            if pkv_offen {
-                finanzen.bezahlt_pkv_offen += betrag;
-                finanzen.bezahlt_pkv_offen_pkv += pkv;
+            for pid in &pkv.personen_ids {
+                person_pkv.entry(pid.clone()).or_insert((pkv.id.clone(), pkv.name.clone()));
             }
-            if bh_offen {
-                finanzen.bezahlt_beihilfe_offen += betrag;
-                finanzen.bezahlt_beihilfe_offen_beihilfe += bh;
-            }
-            if !pkv_offen && !bh_offen {
-                finanzen.abgeschlossen += betrag;
-                finanzen.abgeschlossen_beihilfe += bh;
-                finanzen.abgeschlossen_pkv += pkv;
-            }
-        }
-
-        match kanban_gruppe(r) {
-            "neu" => neu.push(r.clone()),
-            "bezahlt" => bezahlt.push(r.clone()),
-            "beihilfe_eingereicht" => beihilfe_eingereicht.push(r.clone()),
-            "pkv_eingereicht" => pkv_eingereicht_kanban.push(r.clone()),
-            "abgeschlossen" => abgeschlossen.push(r.clone()),
-            _ => {}
         }
     }
 
-    // ── Pipeline-Berechnung (nach Jahr gefiltert) ─────────────────────────────
-    let mut bh_ein_brutto = 0.0f64;
-    let mut bh_ein_voraus = 0.0f64;
-    let mut bh_ein_anzahl = 0i64;
-    let mut bh_ing_brutto = 0.0f64;
-    let mut bh_ing_voraus = 0.0f64;
-    let mut bh_ing_anzahl = 0i64;
-    let mut bh_erst_tats = 0.0f64;
-    let mut bh_erst_anzahl = 0i64;
-    let mut bh_abg_tats = 0.0f64;
-    let mut bh_abg_anzahl = 0i64;
+    let get_pkv_for_person = |person_id: &str| -> Option<(String, String)> {
+        person_pkv
+            .get(person_id)
+            .cloned()
+            .or_else(|| fallback_pkv.clone())
+    };
 
-    let mut pkv_ein_brutto = 0.0f64;
-    let mut pkv_ein_voraus = 0.0f64;
-    let mut pkv_ein_anzahl = 0i64;
-    let mut pkv_ing_brutto = 0.0f64;
-    let mut pkv_ing_voraus = 0.0f64;
-    let mut pkv_ing_anzahl = 0i64;
-    let mut pkv_erst_tats = 0.0f64;
-    let mut pkv_erst_anzahl = 0i64;
-    let mut pkv_abg_tats = 0.0f64;
-    let mut pkv_abg_anzahl = 0i64;
+    // ── KPI-Berechnung ────────────────────────────────────────────────────────
+    let mut eigenkosten_offen = 0.0f64;
+    let mut ausstehende_erstattung = 0.0f64;
+    let mut erstattet_ytd = 0.0f64;
+    let mut einzureichen_anzahl: i64 = 0;
 
     for r in &rechnungen_mit_status {
-        if !r.datum.starts_with(&current_year_str) || r.archiviert_am.is_some() {
+        if r.archiviert_am.is_some() {
             continue;
         }
-        let bh_voraus = r.beihilfe_anteil_erwartet.unwrap_or(0.0);
-        let pkv_voraus = r.pkv_anteil_erwartet.unwrap_or(0.0);
+        let is_current_year = r.datum.starts_with(&current_year_str);
 
-        // BH-Pipeline
-        match r.beihilfe_status.as_deref() {
-            Some("offen") => {
-                bh_ein_brutto += r.betrag;
-                bh_ein_voraus += bh_voraus;
-                bh_ein_anzahl += 1;
-            }
-            Some("eingereicht") => {
-                bh_ing_brutto += r.betrag;
-                bh_ing_voraus += bh_voraus;
-                bh_ing_anzahl += 1;
-            }
-            _ => {}
-        }
-        if let Some(erstattet) = r.beihilfe_erstattet_betrag {
-            bh_erst_tats += erstattet;
-            bh_erst_anzahl += 1;
-            let shortfall = bh_voraus - erstattet;
-            if shortfall > 0.01 {
-                bh_abg_tats += shortfall;
-                bh_abg_anzahl += 1;
-            }
+        if r.bezahlt_am.is_none() && is_current_year {
+            eigenkosten_offen += r.betrag;
         }
 
-        // PKV-Pipeline
-        match r.pkv_status.as_str() {
-            "offen" if !r.pkv_verzicht => {
-                pkv_ein_brutto += r.betrag;
-                pkv_ein_voraus += pkv_voraus;
-                pkv_ein_anzahl += 1;
-            }
-            "eingereicht" => {
-                pkv_ing_brutto += r.betrag;
-                pkv_ing_voraus += pkv_voraus;
-                pkv_ing_anzahl += 1;
-            }
-            _ => {}
+        if r.beihilfe_status.as_deref() == Some("eingereicht") {
+            ausstehende_erstattung += r.beihilfe_anteil_erwartet.unwrap_or(0.0);
         }
-        if let Some(erstattet) = r.pkv_erstattet_betrag {
-            pkv_erst_tats += erstattet;
-            pkv_erst_anzahl += 1;
-            let shortfall = pkv_voraus - erstattet;
-            if shortfall > 0.01 {
-                pkv_abg_tats += shortfall;
-                pkv_abg_anzahl += 1;
+        if r.pkv_status == "eingereicht" {
+            ausstehende_erstattung += r.pkv_anteil_erwartet.unwrap_or(0.0);
+        }
+
+        if is_current_year {
+            erstattet_ytd += r.beihilfe_erstattet_betrag.unwrap_or(0.0);
+            erstattet_ytd += r.pkv_erstattet_betrag.unwrap_or(0.0);
+
+            let bh_einreichbar = r.beihilfe_status.as_deref() == Some("offen")
+                && personen_map
+                    .get(&r.person_id)
+                    .and_then(|p| p.beihilfestelle_id.as_ref())
+                    .is_some();
+            let pkv_einreichbar = r.pkv_status == "offen" && !r.pkv_verzicht;
+            if bh_einreichbar || pkv_einreichbar {
+                einzureichen_anzahl += 1;
             }
         }
     }
 
-    let beihilfe_pipeline = PipelineData {
-        einreichbar: PipelineStageOffen {
-            brutto: (bh_ein_brutto * 100.0).round() / 100.0,
-            voraussichtlich: (bh_ein_voraus * 100.0).round() / 100.0,
-            anzahl: bh_ein_anzahl,
-        },
-        eingereicht: PipelineStageOffen {
-            brutto: (bh_ing_brutto * 100.0).round() / 100.0,
-            voraussichtlich: (bh_ing_voraus * 100.0).round() / 100.0,
-            anzahl: bh_ing_anzahl,
-        },
-        erstattet: PipelineStageAbgeschlossen {
-            tatsaechlich: (bh_erst_tats * 100.0).round() / 100.0,
-            anzahl: bh_erst_anzahl,
-        },
-        abgelehnt: PipelineStageAbgeschlossen {
-            tatsaechlich: (bh_abg_tats * 100.0).round() / 100.0,
-            anzahl: bh_abg_anzahl,
-        },
-    };
+    // ── Bezahlen-Liste ────────────────────────────────────────────────────────
+    let mut bezahlen: Vec<DashboardRechnung> = rechnungen_mit_status
+        .iter()
+        .filter(|r| r.bezahlt_am.is_none() && r.archiviert_am.is_none())
+        .map(|r| {
+            let person_name = personen_map
+                .get(&r.person_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_default();
+            DashboardRechnung {
+                id: r.id.clone(),
+                person_name,
+                betrag: r.betrag,
+                datum: r.datum.clone(),
+                zahlungsziel: r.zahlungsziel.clone(),
+                leistungserbringer_name: correspondent_map.get(&r.leistungserbringer_id).cloned(),
+                voraussichtlich: r.beihilfe_anteil_erwartet.unwrap_or(0.0)
+                    + r.pkv_anteil_erwartet.unwrap_or(0.0),
+                beleg_count: *beleg_count_map.get(&r.id).unwrap_or(&0),
+            }
+        })
+        .collect();
+    bezahlen.sort_by(|a, b| {
+        let za = a.zahlungsziel.as_deref().unwrap_or("9999-99-99");
+        let zb = b.zahlungsziel.as_deref().unwrap_or("9999-99-99");
+        za.cmp(zb)
+    });
 
-    let pkv_pipeline = PipelineData {
-        einreichbar: PipelineStageOffen {
-            brutto: (pkv_ein_brutto * 100.0).round() / 100.0,
-            voraussichtlich: (pkv_ein_voraus * 100.0).round() / 100.0,
-            anzahl: pkv_ein_anzahl,
-        },
-        eingereicht: PipelineStageOffen {
-            brutto: (pkv_ing_brutto * 100.0).round() / 100.0,
-            voraussichtlich: (pkv_ing_voraus * 100.0).round() / 100.0,
-            anzahl: pkv_ing_anzahl,
-        },
-        erstattet: PipelineStageAbgeschlossen {
-            tatsaechlich: (pkv_erst_tats * 100.0).round() / 100.0,
-            anzahl: pkv_erst_anzahl,
-        },
-        abgelehnt: PipelineStageAbgeschlossen {
-            tatsaechlich: (pkv_abg_tats * 100.0).round() / 100.0,
-            anzahl: pkv_abg_anzahl,
-        },
-    };
+    // ── BH-Gruppen (nach Beihilfestelle) ─────────────────────────────────────
+    let mut bh_map: HashMap<String, BhGruppe> = HashMap::new();
 
-    // ── BRE-Berechnung (aktualisiert) ─────────────────────────────────────────
-    let alle_rechnungen: Vec<&RechnungMitStatus> = [
-        &neu,
-        &bezahlt,
-        &beihilfe_eingereicht,
-        &pkv_eingereicht_kanban,
-        &abgeschlossen,
-    ]
-    .iter()
-    .flat_map(|v| v.iter())
-    .collect();
+    for r in &rechnungen_mit_status {
+        if r.archiviert_am.is_some() {
+            continue;
+        }
+        if r.beihilfe_status.as_deref() != Some("offen") {
+            continue;
+        }
+        let person = match personen_map.get(&r.person_id) {
+            Some(p) => p,
+            None => continue,
+        };
+        let bh_id = match &person.beihilfestelle_id {
+            Some(id) => id.clone(),
+            None => continue,
+        };
+        let bh_name = beihilfestellen_map
+            .get(&bh_id)
+            .cloned()
+            .unwrap_or_else(|| bh_id.clone());
+        let voraus = r.beihilfe_anteil_erwartet.unwrap_or(0.0);
 
+        let dr = DashboardRechnung {
+            id: r.id.clone(),
+            person_name: person.name.clone(),
+            betrag: r.betrag,
+            datum: r.datum.clone(),
+            zahlungsziel: r.zahlungsziel.clone(),
+            leistungserbringer_name: correspondent_map.get(&r.leistungserbringer_id).cloned(),
+            voraussichtlich: voraus,
+            beleg_count: *beleg_count_map.get(&r.id).unwrap_or(&0),
+        };
+
+        let entry = bh_map.entry(bh_id.clone()).or_insert(BhGruppe {
+            beihilfestelle_id: bh_id,
+            beihilfestelle_name: bh_name,
+            voraussichtlich_gesamt: 0.0,
+            anzahl: 0,
+            rechnungen: vec![],
+        });
+        entry.voraussichtlich_gesamt = (entry.voraussichtlich_gesamt + voraus) * 100.0 / 100.0;
+        entry.anzahl += 1;
+        entry.rechnungen.push(dr);
+    }
+
+    let mut bh_gruppen: Vec<BhGruppe> = bh_map.into_values().collect();
+    bh_gruppen.sort_by(|a, b| a.beihilfestelle_name.cmp(&b.beihilfestelle_name));
+
+    // ── PKV-Gruppen (nach PKV) ────────────────────────────────────────────────
+    let mut pkv_map: HashMap<String, PkvGruppe> = HashMap::new();
+
+    for r in &rechnungen_mit_status {
+        if r.archiviert_am.is_some() {
+            continue;
+        }
+        if r.pkv_status != "offen" || r.pkv_verzicht {
+            continue;
+        }
+        let person = match personen_map.get(&r.person_id) {
+            Some(p) => p,
+            None => continue,
+        };
+        let (pkv_id, pkv_name) = match get_pkv_for_person(&r.person_id) {
+            Some(v) => v,
+            None => continue,
+        };
+        let voraus = r.pkv_anteil_erwartet.unwrap_or(0.0);
+
+        let dr = DashboardRechnung {
+            id: r.id.clone(),
+            person_name: person.name.clone(),
+            betrag: r.betrag,
+            datum: r.datum.clone(),
+            zahlungsziel: r.zahlungsziel.clone(),
+            leistungserbringer_name: correspondent_map.get(&r.leistungserbringer_id).cloned(),
+            voraussichtlich: voraus,
+            beleg_count: *beleg_count_map.get(&r.id).unwrap_or(&0),
+        };
+
+        let entry = pkv_map.entry(pkv_id.clone()).or_insert(PkvGruppe {
+            pkv_id: Some(pkv_id),
+            pkv_name,
+            voraussichtlich_gesamt: 0.0,
+            anzahl: 0,
+            rechnungen: vec![],
+        });
+        entry.voraussichtlich_gesamt = ((entry.voraussichtlich_gesamt + voraus) * 100.0).round() / 100.0;
+        entry.anzahl += 1;
+        entry.rechnungen.push(dr);
+    }
+
+    let mut pkv_gruppen: Vec<PkvGruppe> = pkv_map.into_values().collect();
+    pkv_gruppen.sort_by(|a, b| a.pkv_name.cmp(&b.pkv_name));
+
+    // ── BRE-Berechnung ────────────────────────────────────────────────────────
     let bre: Vec<BreIndikator> = personen
         .iter()
         .filter_map(|p| {
             let schwelle = p.bre_schwelle?;
-            let pkv_offen: f64 = alle_rechnungen
+            let pkv_offen: f64 = rechnungen_mit_status
                 .iter()
                 .filter(|r| {
                     r.person_id == p.id
                         && r.datum.starts_with(&current_year_str)
                         && r.pkv_eingereicht_am.is_none()
                         && !r.pkv_verzicht
+                        && r.archiviert_am.is_none()
                 })
                 .map(|r| r.pkv_anteil_erwartet.unwrap_or(0.0))
                 .sum();
-            let pkv_eingereicht: f64 = alle_rechnungen
+            let pkv_eingereicht: f64 = rechnungen_mit_status
                 .iter()
                 .filter(|r| {
                     r.person_id == p.id
@@ -364,16 +387,67 @@ pub async fn get(
                 })
                 .map(|r| r.pkv_anteil_erwartet.unwrap_or(0.0))
                 .sum();
-            let bre_spielraum =
-                ((schwelle - pkv_offen) * 100.0).round() / 100.0;
             Some(BreIndikator {
                 person_id: p.id.clone(),
                 person_name: p.name.clone(),
                 bre_schwelle: schwelle,
                 pkv_offen: (pkv_offen * 100.0).round() / 100.0,
                 pkv_eingereicht: (pkv_eingereicht * 100.0).round() / 100.0,
-                bre_spielraum,
+                bre_spielraum: ((schwelle - pkv_offen) * 100.0).round() / 100.0,
             })
+        })
+        .collect();
+
+    // ── Laufende Anträge ──────────────────────────────────────────────────────
+    let antrag_rows = sqlx::query(
+        r#"
+        SELECT
+            a.id, a.referenz_nr, a.titel, a.typ, a.status, a.versendet_am,
+            COALESCE(bh.name, pk.name, a.pkv_versicherer) AS stelle,
+            COUNT(ar.rechnung_id) AS anzahl_rechnungen,
+            CAST(COALESCE(SUM(CAST(r.betrag AS REAL)), 0.0) / 100.0 AS REAL) AS betrag
+        FROM beihilfe_antrag a
+        LEFT JOIN beihilfestelle bh ON bh.id = a.beihilfestelle_id
+        LEFT JOIN pkv pk ON pk.id = a.pkv_id
+        LEFT JOIN beihilfe_antrag_rechnung ar ON ar.antrag_id = a.id
+        LEFT JOIN rechnung r ON r.id = ar.rechnung_id
+        WHERE a.mandant_id = ? AND a.status IN ('versendet', 'in_bearbeitung')
+        GROUP BY a.id
+        ORDER BY COALESCE(a.versendet_am, a.erstellt_am) DESC
+        "#,
+    )
+    .bind(&auth.mandant_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let today = Local::now().date_naive();
+    let laufende_antraege: Vec<LaufenderAntrag> = antrag_rows
+        .into_iter()
+        .map(|row| {
+            let referenz_nr: i64 = row.get("referenz_nr");
+            let typ: String = row.get("typ");
+            let versendet_am: Option<String> = row.get("versendet_am");
+            let tage_offen = versendet_am.as_deref().and_then(|d| {
+                NaiveDate::parse_from_str(&d[..10], "%Y-%m-%d")
+                    .ok()
+                    .map(|sent| (today - sent).num_days())
+            });
+            LaufenderAntrag {
+                id: row.get("id"),
+                nr: format!(
+                    "{}-{:04}",
+                    if typ == "pkv" { "P" } else { "B" },
+                    referenz_nr
+                ),
+                titel: row.get("titel"),
+                typ,
+                status: row.get("status"),
+                stelle: row.get("stelle"),
+                betrag: row.get("betrag"),
+                versendet_am,
+                tage_offen,
+                anzahl_rechnungen: row.get("anzahl_rechnungen"),
+            }
         })
         .collect();
 
@@ -381,10 +455,7 @@ pub async fn get(
     let bescheid_rows = sqlx::query(
         r#"
         SELECT
-            b.id,
-            b.antrag_id,
-            b.typ AS bescheid_typ,
-            b.bescheid_datum,
+            b.id, b.antrag_id, b.typ AS bescheid_typ, b.bescheid_datum,
             COALESCE(a.referenz_nr, 0) AS referenz_nr,
             a.typ AS antrag_typ,
             COALESCE(bh.name, pk.name, a.pkv_versicherer) AS stelle,
@@ -432,61 +503,20 @@ pub async fn get(
         })
         .collect();
 
-    // ── Offene Anträge ────────────────────────────────────────────────────────
-    let antrag_rows = sqlx::query(
-        r#"
-        SELECT
-            a.id,
-            a.referenz_nr,
-            a.titel,
-            a.typ,
-            a.status,
-            COUNT(ar.rechnung_id) AS anzahl,
-            CAST(COALESCE(SUM(CAST(r.betrag AS REAL)), 0.0) / 100.0 AS REAL) AS betrag
-        FROM beihilfe_antrag a
-        LEFT JOIN beihilfe_antrag_rechnung ar ON ar.antrag_id = a.id
-        LEFT JOIN rechnung r ON r.id = ar.rechnung_id
-        WHERE a.mandant_id = ? AND a.status != 'archiviert'
-        GROUP BY a.id
-        ORDER BY a.erstellt_am DESC
-        LIMIT 10
-        "#,
-    )
-    .bind(&auth.mandant_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    let offene_antraege: Vec<OffenerAntragSummary> = antrag_rows
-        .into_iter()
-        .map(|row| {
-            let referenz_nr: i64 = row.get("referenz_nr");
-            OffenerAntragSummary {
-                id: row.get("id"),
-                nr: format!("#{:04}", referenz_nr),
-                titel: row.get("titel"),
-                typ: row.get("typ"),
-                status: row.get("status"),
-                anzahl: row.get("anzahl"),
-                betrag: row.get("betrag"),
-            }
-        })
-        .collect();
-
     Ok(Json(DashboardData {
-        kanban: KanbanBoard {
-            neu,
-            bezahlt,
-            beihilfe_eingereicht,
-            pkv_eingereicht: pkv_eingereicht_kanban,
-            abgeschlossen,
-        },
-        finanzen,
-        bre,
         benutzer_name,
         aktuelles_jahr: current_year,
-        beihilfe_pipeline,
-        pkv_pipeline,
+        kpis: DashboardKpis {
+            eigenkosten_offen: (eigenkosten_offen * 100.0).round() / 100.0,
+            ausstehende_erstattung: (ausstehende_erstattung * 100.0).round() / 100.0,
+            erstattet_ytd: (erstattet_ytd * 100.0).round() / 100.0,
+            einzureichen_anzahl,
+        },
+        bezahlen,
+        bh_gruppen,
+        pkv_gruppen,
+        laufende_antraege,
         letzte_bescheide,
-        offene_antraege,
+        bre,
     }))
 }

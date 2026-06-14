@@ -145,6 +145,7 @@ export interface Rechnung {
   paperless_uebertragen_am: string | null
 }
 
+// Legacy (unused components still reference these)
 export interface KanbanBoard {
   neu: Rechnung[]
   bezahlt: Rechnung[]
@@ -152,19 +153,7 @@ export interface KanbanBoard {
   pkv_eingereicht: Rechnung[]
   abgeschlossen: Rechnung[]
 }
-
-export interface FinanzOverview {
-  offen_unbezahlt: number
-  offen_unbezahlt_beihilfe: number
-  offen_unbezahlt_pkv: number
-  bezahlt_pkv_offen: number
-  bezahlt_pkv_offen_pkv: number
-  bezahlt_beihilfe_offen: number
-  bezahlt_beihilfe_offen_beihilfe: number
-  abgeschlossen: number
-  abgeschlossen_beihilfe: number
-  abgeschlossen_pkv: number
-}
+export interface FinanzOverview { [key: string]: number }
 
 export interface BreIndikator {
   person_id: string
@@ -173,24 +162,6 @@ export interface BreIndikator {
   pkv_offen: number
   pkv_eingereicht: number
   bre_spielraum: number
-}
-
-export interface PipelineStageOffen {
-  brutto: number
-  voraussichtlich: number
-  anzahl: number
-}
-
-export interface PipelineStageAbgeschlossen {
-  tatsaechlich: number
-  anzahl: number
-}
-
-export interface PipelineData {
-  einreichbar: PipelineStageOffen
-  eingereicht: PipelineStageOffen
-  erstattet: PipelineStageAbgeschlossen
-  abgelehnt: PipelineStageAbgeschlossen
 }
 
 export interface BescheidSummary {
@@ -206,26 +177,63 @@ export interface BescheidSummary {
   abgelehnt: number
 }
 
-export interface OffenerAntragSummary {
+export interface DashboardKpis {
+  eigenkosten_offen: number
+  ausstehende_erstattung: number
+  erstattet_ytd: number
+  einzureichen_anzahl: number
+}
+
+export interface DashboardRechnung {
+  id: string
+  person_name: string
+  betrag: number
+  datum: string
+  zahlungsziel: string | null
+  leistungserbringer_name: string | null
+  voraussichtlich: number
+  beleg_count: number
+}
+
+export interface BhGruppe {
+  beihilfestelle_id: string
+  beihilfestelle_name: string
+  voraussichtlich_gesamt: number
+  anzahl: number
+  rechnungen: DashboardRechnung[]
+}
+
+export interface PkvGruppe {
+  pkv_id: string | null
+  pkv_name: string
+  voraussichtlich_gesamt: number
+  anzahl: number
+  rechnungen: DashboardRechnung[]
+}
+
+export interface LaufenderAntrag {
   id: string
   nr: string
   titel: string | null
   typ: 'beihilfe' | 'pkv'
   status: string
-  anzahl: number
+  stelle: string | null
   betrag: number
+  versendet_am: string | null
+  tage_offen: number | null
+  anzahl_rechnungen: number
 }
 
 export interface DashboardData {
-  kanban: KanbanBoard
-  finanzen: FinanzOverview
-  bre: BreIndikator[]
   benutzer_name: string
   aktuelles_jahr: number
-  beihilfe_pipeline: PipelineData
-  pkv_pipeline: PipelineData
+  kpis: DashboardKpis
+  bezahlen: DashboardRechnung[]
+  bh_gruppen: BhGruppe[]
+  pkv_gruppen: PkvGruppe[]
+  laufende_antraege: LaufenderAntrag[]
   letzte_bescheide: BescheidSummary[]
-  offene_antraege: OffenerAntragSummary[]
+  bre: BreIndikator[]
 }
 
 export interface Anhang {
