@@ -1441,7 +1441,7 @@ function NavRow({ label, dot, active, onClick }: {
       onMouseLeave={() => setHov(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 9,
-        padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
+        padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
         background: active ? 'var(--row-active)' : hov ? 'var(--row-hover)' : 'transparent',
         transition: 'background 0.12s',
       }}
@@ -1469,22 +1469,73 @@ const TAB_META: Record<Tab, { dot: string; sub: string }> = {
   einstellungen:  { dot: 'var(--text-subtle)',  sub: 'Integrationen, Scan & Logo' },
 }
 
+// ─── Mobile Tab Bar ───────────────────────────────────────────────────────────
+
+const MOBILE_TAB_ORDER: Tab[] = ['personen', 'beihilfestellen', 'pkv', 'correspondents', 'benutzer', 'einstellungen']
+
+function MobileTabBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+  return (
+    <div
+      className="sm:hidden"
+      style={{
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--surface)',
+        flexShrink: 0,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+      }}
+    >
+      <div style={{ display: 'flex', padding: '0 4px', minWidth: 'max-content' }}>
+        {MOBILE_TAB_ORDER.map(t => {
+          const active = tab === t
+          const dot = TAB_META[t].dot
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '10px 14px',
+                fontSize: 13,
+                fontWeight: active ? 600 : 400,
+                color: active ? 'var(--text)' : 'var(--text-muted)',
+                background: 'none', border: 'none',
+                borderBottom: `2px solid ${active ? 'var(--primary)' : 'transparent'}`,
+                cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: dot, flexShrink: 0, opacity: active ? 1 : 0.5 }} />
+              {tabLabels[t]}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function StammdatenPage() {
   const [tab, setTab] = useState<Tab>('personen')
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <div className="flex flex-col sm:flex-row" style={{ height: '100%', overflow: 'hidden' }}>
 
-      {/* ── Sidebar ── */}
-      <div style={{
-        width: 220, minWidth: 220, flexShrink: 0,
-        borderRight: '1px solid var(--border)',
-        background: 'var(--surface)',
-        display: 'flex', flexDirection: 'column',
-        overflowY: 'auto',
-      }}>
+      {/* ── Mobile Tab Bar (< sm) ── */}
+      <MobileTabBar tab={tab} setTab={setTab} />
+
+      {/* ── Desktop Sidebar (≥ sm) ── */}
+      <div
+        className="hidden sm:flex"
+        style={{
+          width: 220, minWidth: 220, flexShrink: 0,
+          borderRight: '1px solid var(--border)',
+          background: 'var(--surface)',
+          flexDirection: 'column',
+          overflowY: 'auto',
+        }}
+      >
         <div style={{ padding: '18px 14px 8px' }}>
           <NavGroup title="Verwaltung">
             <NavRow label="Personen"           dot={TAB_META.personen.dot}        active={tab === 'personen'}        onClick={() => setTab('personen')} />
@@ -1503,8 +1554,8 @@ export default function StammdatenPage() {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
 
         {/* Toolbar */}
-        <div style={{ padding: '16px 24px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <h1 style={{ fontSize: 21, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }}>
+        <div style={{ borderBottom: '1px solid var(--border)', flexShrink: 0 }} className="px-4 py-3 sm:px-6 sm:py-4">
+          <h1 style={{ fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: 0 }} className="text-[18px] sm:text-[21px]">
             {tabLabels[tab]}
           </h1>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
@@ -1513,7 +1564,7 @@ export default function StammdatenPage() {
         </div>
 
         {/* Tab-Inhalt */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px 32px' }}>
+        <div style={{ flex: 1, overflowY: 'auto' }} className="p-4 pb-10 sm:px-6 sm:py-5 sm:pb-10">
           {tab === 'personen'        && <PersonenTab />}
           {tab === 'correspondents'  && <CorrespondentsTab />}
           {tab === 'beihilfestellen' && <BeihilfestellenTab />}
