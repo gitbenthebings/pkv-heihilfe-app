@@ -22,7 +22,7 @@ export default function Layout() {
   const { logout } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const fullBleed = pathname === '/belege' || pathname === '/stammdaten' || pathname === '/dashboard'
+  const fullBleed = pathname === '/belege' || pathname === '/stammdaten' || pathname === '/dashboard' || pathname === '/aktivitaetslog'
   const { dark, toggle } = useTheme()
   const { jahr, setJahr, jahreOptionen } = useJahr()
   const [menuOpen, setMenuOpen] = useState(false)

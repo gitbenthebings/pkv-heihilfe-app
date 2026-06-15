@@ -18,13 +18,22 @@ const FELD_LABELS: Record<string, string> = {
   pkv_erstattet_betrag: 'PKV erstattet',
 }
 
-const AKTION_LABELS: Record<string, string> = {
+export const AKTION_LABELS: Record<string, string> = {
   erstellt: 'Rechnung erstellt',
   geaendert: 'Rechnung geändert',
   antrag_zugewiesen: 'Antrag zugewiesen',
   antrag_entfernt: 'Antrag entfernt',
   anhang_hochgeladen: 'Anhang hochgeladen',
   anhang_geloescht: 'Anhang gelöscht',
+}
+
+export const AKTION_DOT: Record<string, string> = {
+  erstellt: 'var(--green)',
+  geaendert: 'var(--blue)',
+  antrag_zugewiesen: 'var(--teal)',
+  antrag_entfernt: 'var(--amber)',
+  anhang_hochgeladen: 'var(--purple)',
+  anhang_geloescht: 'var(--rose)',
 }
 
 function formatCent(val: string | null): string {
@@ -36,77 +45,84 @@ function formatCent(val: string | null): string {
 
 function formatFieldValue(feld: string, val: string | null): string {
   if (val === null || val === '') return '—'
-  if (['betrag', 'beihilfe_erstattet_betrag', 'pkv_erstattet_betrag'].includes(feld)) {
-    return formatCent(val)
-  }
-  if (['pkv_gescannt', 'beihilfe_gescannt', 'pkv_verzicht'].includes(feld)) {
-    return val === 'true' ? 'Ja' : 'Nein'
-  }
+  if (['betrag', 'beihilfe_erstattet_betrag', 'pkv_erstattet_betrag'].includes(feld)) return formatCent(val)
+  if (['pkv_gescannt', 'beihilfe_gescannt', 'pkv_verzicht'].includes(feld)) return val === 'true' ? 'Ja' : 'Nein'
   if (['datum', 'zahlungsziel', 'bezahlt_am', 'beihilfe_eingereicht_am', 'pkv_eingereicht_am'].includes(feld)) {
     try { return new Date(val).toLocaleDateString('de-DE') } catch { return val }
   }
   return val
 }
 
-function formatTimestamp(ts: string): string {
+export function formatTimestamp(ts: string): string {
   try {
     return new Date(ts).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })
-  } catch {
-    return ts
-  }
+  } catch { return ts }
 }
 
 function DiffRow({ diff }: { diff: AktivitaetDiff }) {
   const label = FELD_LABELS[diff.feld] ?? diff.feld
   return (
-    <div className="flex items-start gap-2 text-xs">
-      <span className="text-gray-500 dark:text-gray-400 w-32 shrink-0">{label}</span>
-      <span className="text-red-600 dark:text-red-400 line-through">{formatFieldValue(diff.feld, diff.alt)}</span>
-      <span className="text-gray-400">→</span>
-      <span className="text-green-600 dark:text-green-400">{formatFieldValue(diff.feld, diff.neu)}</span>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 11 }}>
+      <span style={{ color: 'var(--text-subtle)', width: 130, flexShrink: 0 }}>{label}</span>
+      <span style={{ color: 'var(--rose)', textDecoration: 'line-through' }}>{formatFieldValue(diff.feld, diff.alt)}</span>
+      <span style={{ color: 'var(--text-subtle)' }}>→</span>
+      <span style={{ color: 'var(--green)' }}>{formatFieldValue(diff.feld, diff.neu)}</span>
     </div>
   )
 }
 
-function AktivitaetItem({ item, rechnungLabel }: { item: RechnungAktivitaet; rechnungLabel?: string }) {
-  let diffs: AktivitaetDiff[] = []
-  let extra: Record<string, string> = {}
+export function parseAenderungen(raw: string): { diffs: AktivitaetDiff[]; extra: Record<string, string> } {
   try {
-    const parsed = JSON.parse(item.aenderungen)
-    if (Array.isArray(parsed)) {
-      diffs = parsed
-    } else if (parsed && typeof parsed === 'object') {
-      extra = parsed
-    }
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return { diffs: parsed, extra: {} }
+    if (parsed && typeof parsed === 'object') return { diffs: [], extra: parsed }
   } catch { /* ignore */ }
+  return { diffs: [], extra: {} }
+}
 
-  const aktionLabel = AKTION_LABELS[item.aktion] ?? item.aktion
-
+export function AktivitaetDiffs({ item }: { item: RechnungAktivitaet }) {
+  const { diffs, extra } = parseAenderungen(item.aenderungen)
+  if (diffs.length === 0 && Object.keys(extra).length === 0) return null
   return (
-    <div className="border-l-2 border-gray-200 dark:border-gray-600 pl-3 py-1">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{aktionLabel}</span>
-          {rechnungLabel && (
-            <span className="text-xs font-mono text-gray-400 dark:text-gray-500 shrink-0">{rechnungLabel}</span>
-          )}
-        </div>
-        <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{formatTimestamp(item.erstellt_am)}</span>
-      </div>
-
+    <div style={{ marginTop: 4 }}>
       {diffs.length > 0 && (
-        <div className="space-y-0.5">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {diffs.map((d, i) => <DiffRow key={i} diff={d} />)}
         </div>
       )}
-
       {Object.keys(extra).length > 0 && (
-        <div className="text-xs text-gray-500 dark:text-gray-400">
-          {Object.entries(extra).map(([k, v]) => (
-            <span key={k} className="mr-3">{k}: {v}</span>
-          ))}
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {Object.entries(extra).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
         </div>
       )}
+    </div>
+  )
+}
+
+export function AktivitaetItem({ item, rechnungLabel }: { item: RechnungAktivitaet; rechnungLabel?: string }) {
+  const aktionLabel = AKTION_LABELS[item.aktion] ?? item.aktion
+  const dot = AKTION_DOT[item.aktion] ?? 'var(--text-subtle)'
+  const { diffs } = parseAenderungen(item.aenderungen)
+
+  return (
+    <div style={{ borderLeft: '2px solid var(--border)', paddingLeft: 12, paddingTop: 4, paddingBottom: 4, position: 'relative' }}>
+      <span style={{
+        position: 'absolute', left: -5, top: 8,
+        width: 8, height: 8, borderRadius: '50%',
+        background: dot, border: '2px solid var(--bg)',
+      }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: diffs.length > 0 ? 4 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>{aktionLabel}</span>
+          {rechnungLabel && (
+            <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontFamily: 'monospace', flexShrink: 0 }}>{rechnungLabel}</span>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-subtle)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+          {formatTimestamp(item.erstellt_am)}
+        </span>
+      </div>
+      <AktivitaetDiffs item={item} />
     </div>
   )
 }
@@ -119,15 +135,13 @@ interface Props {
 
 export default function AktivitaetsLog({ aktivitaeten, loading, rechnungenMap }: Props) {
   if (loading) {
-    return <p className="text-sm text-gray-400 dark:text-gray-500">Lade Aktivitätslog…</p>
+    return <p style={{ fontSize: 13, color: 'var(--text-subtle)' }}>Lade Aktivitätslog…</p>
   }
-
   if (aktivitaeten.length === 0) {
-    return <p className="text-sm text-gray-400 dark:text-gray-500">Keine Aktivitäten vorhanden.</p>
+    return <p style={{ fontSize: 13, color: 'var(--text-subtle)' }}>Keine Aktivitäten vorhanden.</p>
   }
-
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {aktivitaeten.map(item => {
         let rechnungLabel: string | undefined
         if (rechnungenMap) {

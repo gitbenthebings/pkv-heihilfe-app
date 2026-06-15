@@ -29,7 +29,7 @@ const TYP_ITEMS: Array<{ value: BelegTyp | ''; label: string }> = [
 
 type VerknuepftFilter = '' | 'ja' | 'nein'
 type OcrFilter = '' | 'done' | 'pending'
-type SortMode = 'neu' | 'az'
+type SortMode = 'neu' | 'datum_neu' | 'datum_alt' | 'az'
 
 // ── Sidebar-Komponenten ────────────────────────────────────────────────────
 function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
@@ -196,6 +196,18 @@ export default function BelegePage() {
       return true
     })
     const copy = [...list]
+    if (sort === 'datum_neu') return copy.sort((a, b) => {
+      if (!a.datum && !b.datum) return 0
+      if (!a.datum) return 1
+      if (!b.datum) return -1
+      return b.datum.localeCompare(a.datum)
+    })
+    if (sort === 'datum_alt') return copy.sort((a, b) => {
+      if (!a.datum && !b.datum) return 0
+      if (!a.datum) return 1
+      if (!b.datum) return -1
+      return a.datum.localeCompare(b.datum)
+    })
     if (sort === 'az') return copy.sort((a, b) => (a.bezeichnung || a.dateiname).localeCompare(b.bezeichnung || b.dateiname, 'de'))
     return copy
   }, [allBelege, typFilter, verknuepftFilter, ocrFilter, sort])
@@ -370,7 +382,9 @@ export default function BelegePage() {
                 onChange={e => setSort(e.target.value as SortMode)}
                 style={{ ...fieldStyle, width: 'auto', fontSize: 12, padding: '7px 10px' }}
               >
-                <option value="neu">Neueste zuerst</option>
+                <option value="neu">Hochgeladen (neueste)</option>
+                <option value="datum_neu">Belegdatum (neueste)</option>
+                <option value="datum_alt">Belegdatum (älteste)</option>
                 <option value="az">Name (A–Z)</option>
               </select>
             </div>
