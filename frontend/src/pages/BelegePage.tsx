@@ -266,15 +266,39 @@ export default function BelegePage() {
         </div>
       )}
 
+      {/* Mobile Typ-Filter (Tab-Leiste) */}
+      <div className="flex sm:hidden" style={{
+        overflowX: 'auto', flexShrink: 0,
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--surface)',
+      }}>
+        {TYP_ITEMS.map(f => (
+          <button
+            key={f.value}
+            onClick={() => setTypFilter(f.value)}
+            style={{
+              minWidth: 'max-content', padding: '10px 14px',
+              fontSize: 13, border: 'none', background: 'none', cursor: 'pointer',
+              color: typFilter === f.value ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${typFilter === f.value ? 'var(--primary)' : 'transparent'}`,
+              fontWeight: typFilter === f.value ? 600 : 400,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* Body: Sidebar + Main */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
         {/* ── Sidebar ── */}
-        <div style={{
+        <div className="hidden sm:flex" style={{
           width: 236, minWidth: 236, flexShrink: 0,
           borderRight: '1px solid var(--border)',
           background: 'var(--surface)',
-          display: 'flex', flexDirection: 'column',
+          flexDirection: 'column',
           overflowY: 'auto',
         }}>
           <div style={{ padding: '18px 14px 8px' }}>

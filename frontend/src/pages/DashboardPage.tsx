@@ -533,7 +533,7 @@ export default function DashboardPage() {
   if (isLoading || !data) {
     return (
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-        <div style={{ width: 220, background: 'var(--surface)', borderRight: '1px solid var(--border)' }} />
+        <div className="hidden sm:block" style={{ width: 220, background: 'var(--surface)', borderRight: '1px solid var(--border)' }} />
         <div style={{ flex: 1, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Skel h={56} />
           <div style={{ display: 'flex', gap: 12 }}><Skel h={80} /><Skel h={80} /><Skel h={80} /><Skel h={80} /></div>
@@ -548,10 +548,57 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+
+        {/* Mobile Institution-Filter (Tab-Leiste) */}
+        <div className="flex sm:hidden" style={{
+          overflowX: 'auto', flexShrink: 0,
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--surface)',
+        }}>
+          <button
+            onClick={() => setInstFilter('alle')}
+            style={{
+              minWidth: 'max-content', padding: '10px 14px',
+              fontSize: 13, border: 'none', background: 'none', cursor: 'pointer',
+              color: instFilter === 'alle' ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${instFilter === 'alle' ? 'var(--primary)' : 'transparent'}`,
+              fontWeight: instFilter === 'alle' ? 600 : 400, whiteSpace: 'nowrap',
+            }}
+          >Alle</button>
+          {bh_gruppen.map(g => (
+            <button
+              key={g.beihilfestelle_id}
+              onClick={() => setInstFilter(`bh:${g.beihilfestelle_id}`)}
+              style={{
+                minWidth: 'max-content', padding: '10px 14px',
+                fontSize: 13, border: 'none', background: 'none', cursor: 'pointer',
+                color: instFilter === `bh:${g.beihilfestelle_id}` ? 'var(--blue)' : 'var(--text-muted)',
+                borderBottom: `2px solid ${instFilter === `bh:${g.beihilfestelle_id}` ? 'var(--blue)' : 'transparent'}`,
+                fontWeight: instFilter === `bh:${g.beihilfestelle_id}` ? 600 : 400, whiteSpace: 'nowrap',
+              }}
+            >{g.beihilfestelle_name}</button>
+          ))}
+          {pkv_gruppen.map(g => (
+            <button
+              key={g.pkv_id ?? 'pkv'}
+              onClick={() => setInstFilter(`pkv:${g.pkv_id ?? ''}`)}
+              style={{
+                minWidth: 'max-content', padding: '10px 14px',
+                fontSize: 13, border: 'none', background: 'none', cursor: 'pointer',
+                color: instFilter === `pkv:${g.pkv_id ?? ''}` ? 'var(--teal)' : 'var(--text-muted)',
+                borderBottom: `2px solid ${instFilter === `pkv:${g.pkv_id ?? ''}` ? 'var(--teal)' : 'transparent'}`,
+                fontWeight: instFilter === `pkv:${g.pkv_id ?? ''}` ? 600 : 400, whiteSpace: 'nowrap',
+              }}
+            >{g.pkv_name}</button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
         {/* ── Sidebar ── */}
-        <div style={{
+        <div className="hidden sm:block" style={{
           width: 220, minWidth: 220, flexShrink: 0,
           borderRight: '1px solid var(--border)',
           background: 'var(--surface)',
@@ -750,6 +797,7 @@ export default function DashboardPage() {
             </div>
 
           </div>
+        </div>
         </div>
       </div>
 
