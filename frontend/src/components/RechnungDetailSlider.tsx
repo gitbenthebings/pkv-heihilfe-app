@@ -454,7 +454,7 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
   const navigate = useNavigate()
   const overlayRef = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<Tab>('details')
-  const [editing, setEditing] = useState(true)
+  const [editing, setEditing] = useState(false)
 
   const { data: rechnungen = [] } = useQuery({ queryKey: ['rechnungen'], queryFn: () => getRechnungen() })
   const { data: personen    = [] } = useQuery({ queryKey: ['personen'],    queryFn: getPersonen })
@@ -493,7 +493,7 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
 
   useEffect(() => {
     setTab('details')
-    setEditing(true)
+    setEditing(false)
   }, [rechnungId])
 
   if (!rechnungId) return null
