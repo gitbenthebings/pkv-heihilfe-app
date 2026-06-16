@@ -238,6 +238,65 @@ function EditForm({
   )
 }
 
+// ─── Lifecycle Timeline ───────────────────────────────────────────────────────
+
+interface LifecycleStep {
+  label: string
+  date: string | null | undefined
+  amount?: string
+  done: boolean
+  skipped?: boolean
+  color: string
+  note?: string
+}
+
+function LifecycleTimeline({ steps }: { steps: LifecycleStep[] }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {steps.map((step, i) => {
+        const isLast = i === steps.length - 1
+        const dotColor = step.skipped ? 'var(--text-subtle)' : step.done ? step.color : 'var(--border-hi)'
+        return (
+          <div key={step.label} style={{ display: 'flex', gap: 10, opacity: step.skipped ? 0.45 : 1 }}>
+            {/* Dot + Linie */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0, marginTop: 3,
+                background: step.done && !step.skipped ? dotColor : 'transparent',
+                border: `2px solid ${dotColor}`,
+              }} />
+              {!isLast && (
+                <div style={{ width: 2, flex: 1, minHeight: 14, background: step.done && !step.skipped ? 'var(--border-hi)' : 'var(--border)', marginTop: 2, marginBottom: 2 }} />
+              )}
+            </div>
+            {/* Text */}
+            <div style={{ paddingBottom: isLast ? 0 : 8, paddingTop: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, fontWeight: step.done ? 600 : 400, color: step.done && !step.skipped ? 'var(--text)' : 'var(--text-subtle)' }}>
+                  {step.label}
+                </span>
+                {step.date && (
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatDate(step.date)}
+                  </span>
+                )}
+                {step.amount && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: step.color, fontVariantNumeric: 'tabular-nums' }}>
+                    {step.amount}
+                  </span>
+                )}
+              </div>
+              {step.note && (
+                <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 1 }}>{step.note}</div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Read View ────────────────────────────────────────────────────────────────
 
 function ReadView({ rechnung, personen, correspondents, onEdit }: {
@@ -266,6 +325,60 @@ function ReadView({ rechnung, personen, correspondents, onEdit }: {
       ? rechnung.betrag - (tatsaechlichBH ?? 0) - tatsaechlichPKV
       : null
 
+  // Lebenszyklus-Schritte ableiten
+  const hasBH = !!person?.beihilfestelle_id
+  const lifecycleSteps: LifecycleStep[] = [
+    {
+      label: 'Erstellt',
+      date: rechnung.datum,
+      done: true,
+      color: 'var(--text-muted)',
+    },
+    {
+      label: 'Bezahlt',
+      date: rechnung.bezahlt_am,
+      done: !!rechnung.bezahlt_am,
+      color: 'var(--green)',
+    },
+    ...(hasBH ? [{
+      label: 'Bei Beihilfe eingereicht',
+      date: rechnung.beihilfe_eingereicht_am,
+      done: !!rechnung.beihilfe_eingereicht_am,
+      color: 'var(--blue)',
+    }, {
+      label: 'Von Beihilfe beschieden',
+      date: rechnung.beihilfe_eingereicht_am ?? undefined,
+      amount: tatsaechlichBH != null ? formatEuro(tatsaechlichBH) : undefined,
+      done: tatsaechlichBH != null,
+      color: 'var(--blue)',
+    }] : []),
+    ...(rechnung.pkv_verzicht ? [{
+      label: 'PKV-Einreichung zurückgestellt',
+      date: undefined,
+      done: true,
+      skipped: true,
+      color: 'var(--amber)',
+      note: 'Zurückgestellt',
+    }] : [{
+      label: 'Bei PKV eingereicht',
+      date: rechnung.pkv_eingereicht_am,
+      done: !!rechnung.pkv_eingereicht_am,
+      color: 'var(--teal)',
+    }, {
+      label: 'Von PKV beschieden',
+      date: rechnung.pkv_eingereicht_am ?? undefined,
+      amount: tatsaechlichPKV != null ? formatEuro(tatsaechlichPKV) : undefined,
+      done: tatsaechlichPKV != null,
+      color: 'var(--teal)',
+    }]),
+    ...(rechnung.archiviert_am ? [{
+      label: 'Archiviert',
+      date: rechnung.archiviert_am,
+      done: true,
+      color: 'var(--text-subtle)',
+    }] : []),
+  ]
+
   return (
     <>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -290,6 +403,14 @@ function ReadView({ rechnung, personen, correspondents, onEdit }: {
               </span>
             </div>
           )}
+        </div>
+
+        {/* Lebenszyklus */}
+        <div style={{ background: 'var(--surface-alt)', borderRadius: 8, padding: '10px 14px', border: '1px solid var(--border)', marginBottom: 10 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 8 }}>
+            Lebenszyklus
+          </div>
+          <LifecycleTimeline steps={lifecycleSteps} />
         </div>
 
         <Row label="Person"           value={person?.name} />
