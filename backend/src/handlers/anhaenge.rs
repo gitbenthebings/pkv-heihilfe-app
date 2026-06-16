@@ -7,6 +7,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::{auth::AuthUser, errors::AppError, models::anhang::Anhang, repositories, AppState};
+use serde_json::json;
 
 const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024; // 20 MB
 
@@ -83,6 +84,9 @@ pub async fn upload(
     )
     .await?;
 
+    let payload = json!({"dateiname": dateiname}).to_string();
+    repositories::aktivitaet::insert(&state.db, &auth.mandant_id, &rechnung_id, Some(&auth.benutzer_id), "anhang_hochgeladen", &payload).await.ok();
+
     Ok((StatusCode::CREATED, Json(anhang)))
 }
 
@@ -143,6 +147,9 @@ pub async fn delete(
     tokio::fs::remove_file(&abs_pfad).await.ok();
 
     repositories::anhaenge::delete(&state.db, &anhang_id, &rechnung_id).await?;
+
+    let payload = json!({"dateiname": anhang.dateiname}).to_string();
+    repositories::aktivitaet::insert(&state.db, &auth.mandant_id, &rechnung_id, Some(&auth.benutzer_id), "anhang_geloescht", &payload).await.ok();
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -19,6 +19,9 @@ pub async fn set_status_transition(
         .await?
         .ok_or(AppError::NotFound)?;
 
+    // Alle Rechnungen des Antrags einmalig laden (für eingereicht_am-Sync und Lifecycle-Logging)
+    let rechnungen = repositories::beihilfe_antraege::list_rechnungen(db, antrag_id).await?;
+
     // Beim Übergang zu 'versendet' oder 'in_bearbeitung': eingereicht_am auf zugewiesene Rechnungen setzen
     if (neuer_status == "versendet" || neuer_status == "in_bearbeitung") && antrag.status != neuer_status {
         let datum = versendet_am
@@ -38,7 +41,6 @@ pub async fn set_status_transition(
             )
         };
 
-        let rechnungen = repositories::beihilfe_antraege::list_rechnungen(db, antrag_id).await?;
         for ar in &rechnungen {
             let result = sqlx::query(sql_update)
                 .bind(&datum)
@@ -56,5 +58,20 @@ pub async fn set_status_transition(
 
     // versendet_am nur beim 'versendet'-Übergang am Antrag speichern
     let store_versendet_am = if neuer_status == "versendet" { versendet_am } else { None };
-    repositories::beihilfe_antraege::set_status(db, antrag_id, mandant_id, neuer_status, store_versendet_am).await
+    let result = repositories::beihilfe_antraege::set_status(db, antrag_id, mandant_id, neuer_status, store_versendet_am).await?;
+
+    // Lifecycle-Ereignis auf allen verknüpften Rechnungen loggen (nur bei tatsächlichem Statuswechsel)
+    if antrag.status != neuer_status {
+        let log_payload = serde_json::json!({
+            "antrag_typ":    antrag.typ,
+            "alter_status":  antrag.status,
+            "neuer_status":  neuer_status,
+            "antrag_titel":  antrag.titel,
+        }).to_string();
+        for ar in &rechnungen {
+            repositories::aktivitaet::insert(db, mandant_id, &ar.rechnung_id, Some(benutzer_id), "antrag_status_geaendert", &log_payload).await.ok();
+        }
+    }
+
+    Ok(result)
 }

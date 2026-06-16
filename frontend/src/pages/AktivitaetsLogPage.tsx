@@ -59,6 +59,7 @@ const AKTION_ITEMS = [
   { value: 'geaendert', label: 'Geändert' },
   { value: 'antrag_zugewiesen', label: 'Antrag zugewiesen' },
   { value: 'antrag_entfernt', label: 'Antrag entfernt' },
+  { value: 'antrag_status_geaendert', label: 'Antrag-Status' },
   { value: 'anhang_hochgeladen', label: 'Anhang hochgeladen' },
   { value: 'anhang_geloescht', label: 'Anhang gelöscht' },
 ] as const

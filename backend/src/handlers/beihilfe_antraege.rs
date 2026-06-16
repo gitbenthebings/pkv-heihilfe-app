@@ -16,6 +16,7 @@ use crate::{
     services,
     AppState,
 };
+use serde_json::json;
 
 #[derive(Deserialize)]
 pub struct AntragFilter {
@@ -136,6 +137,9 @@ pub async fn add_rechnung(
         body.widerspruch.unwrap_or(false),
     ).await?;
 
+    let payload = json!({"antrag_typ": antrag.typ, "antrag_titel": antrag.titel, "antrag_id": antrag_id}).to_string();
+    repositories::aktivitaet::insert(&state.db, &auth.mandant_id, &body.rechnung_id, Some(&auth.benutzer_id), "antrag_zugewiesen", &payload).await.ok();
+
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -144,11 +148,15 @@ pub async fn remove_rechnung(
     auth: AuthUser,
     Path((antrag_id, rechnung_id)): Path<(String, String)>,
 ) -> Result<StatusCode, AppError> {
-    repositories::beihilfe_antraege::get(&state.db, &antrag_id, &auth.mandant_id)
+    let antrag = repositories::beihilfe_antraege::get(&state.db, &antrag_id, &auth.mandant_id)
         .await?
         .ok_or(AppError::NotFound)?;
 
     repositories::beihilfe_antraege::remove_rechnung(&state.db, &antrag_id, &rechnung_id).await?;
+
+    let payload = json!({"antrag_typ": antrag.typ, "antrag_titel": antrag.titel, "antrag_id": antrag_id}).to_string();
+    repositories::aktivitaet::insert(&state.db, &auth.mandant_id, &rechnung_id, Some(&auth.benutzer_id), "antrag_entfernt", &payload).await.ok();
+
     Ok(StatusCode::NO_CONTENT)
 }
 

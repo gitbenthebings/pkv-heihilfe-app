@@ -380,3 +380,80 @@ Keine weiteren Schema-Änderungen. Bestehende Bescheid-Tabellen sind typ-agnosti
 **Einschätzung:** Machbar in 2 fokussierten Sessions. Der Scope ist klar begrenzt; durch die Wiederverwendung aller bestehenden Tabellen und UI-Komponenten bleibt die Komplexität im Rahmen. Das größte Risiko ist die Sync-Funktion: sie muss zuverlässig das richtige Zielfeld (`beihilfe_erstattet_betrag` vs. `pkv_erstattet_betrag`) bestimmen, da ein falsches Update schwer zu debuggen ist.
 
 *Letzte Aktualisierung: 2026-05-20*
+
+---
+
+## Online-Deployment (claimbox.fringstar.net)
+
+Voraussetzungen für den Betrieb hinter nginx-proxy-manager (NPM) im Internet. Alle Punkte müssen vor dem ersten öffentlichen Aufruf erledigt sein.
+
+### OD1 · CORS einschränken
+**Status:** `[ ]`
+
+`allow_origin(Any)` in `backend/src/main.rs` erlaubt derzeit alle Herkunfts-Domains. Im Internet muss CORS auf die tatsächliche Frontend-Domain beschränkt werden.
+
+**Fix:**
+```rust
+// backend/src/main.rs
+.allow_origin("https://claimbox.fringstar.net".parse::<HeaderValue>().unwrap())
+```
+
+**Betroffene Datei:** `backend/src/main.rs`
+
+### OD2 · Rate Limiting auf /api/auth/login
+**Status:** `[ ]`
+
+Der Login-Endpunkt hat kein Rate Limiting — Brute-Force-Angriffe auf das Admin-Passwort sind ungehindert möglich.
+
+**Fix:** nginx `limit_req_zone` + `limit_req` im Frontend-nginx:
+```nginx
+limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+
+location /api/auth/login {
+    limit_req zone=login burst=3 nodelay;
+    proxy_pass http://backend:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+**Betroffene Datei:** `frontend/nginx.conf`
+
+### OD3 · Security Headers
+**Status:** `[ ]`
+
+Ohne Security Headers sind Clickjacking, MIME-Sniffing und ungewollte Referrer-Leaks möglich.
+
+**Fix:** Header im `server`-Block von `frontend/nginx.conf`:
+```nginx
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';" always;
+```
+
+**Betroffene Datei:** `frontend/nginx.conf`
+
+### OD4 · Netzwerk-Isolation (docker-compose.yml)
+**Status:** `[ ]`
+
+Backend-Port 3000 ist am Host exponiert, Frontend nicht im `proxy-net`. Für den Internet-Betrieb muss NPM das Frontend direkt ansprechen, und der Backend-Port darf nicht öffentlich erreichbar sein.
+
+**Fix in `docker-compose.yml`:**
+- `frontend`: dem `proxy-net` hinzufügen (damit NPM es erreicht)
+- `backend`: `ports`-Eintrag (`3000:3000`) entfernen (nur noch intern erreichbar)
+
+**Betroffene Datei:** `docker-compose.yml`
+
+### OD5 · NPM konfigurieren (manuell)
+**Status:** `[ ]`
+
+nginx-proxy-manager muss als Reverse Proxy für `claimbox.fringstar.net` eingerichtet werden.
+
+**Schritte im NPM-Web-UI:**
+1. Proxy Host anlegen: `claimbox.fringstar.net` → `frontend:80` (nach OD4 im proxy-net sichtbar)
+2. SSL-Zertifikat: Let's Encrypt, `claimbox.fringstar.net`, E-Mail eintragen
+3. „Force SSL" aktivieren (HTTP → HTTPS Redirect)
+4. „HSTS Enabled" aktivieren (Strict-Transport-Security)
+
+Kein Datei-Fix — reine UI-Konfiguration im NPM.

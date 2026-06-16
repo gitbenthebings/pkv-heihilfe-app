@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use chrono::Utc;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -135,6 +136,23 @@ pub async fn bulk_action(
         &body.action,
     )
     .await?;
+
+    // Aktivitätslog für jede betroffene Rechnung
+    {
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let (feld, neu_val): (&str, Option<&str>) = match &body.action {
+            BulkAction::Bezahlt             => ("bezahlt_am",             Some(&today)),
+            BulkAction::BeihilfeEingereicht => ("beihilfe_eingereicht_am", Some(&today)),
+            BulkAction::PkvEingereicht      => ("pkv_eingereicht_am",     Some(&today)),
+            BulkAction::Archivieren         => ("archiviert_am",          Some(&today)),
+            BulkAction::Dearchivieren       => ("archiviert_am",          None),
+        };
+        let diff = serde_json::json!([{"feld": feld, "alt": null, "neu": neu_val}]);
+        let diff_str = diff.to_string();
+        for id in &body.ids {
+            repositories::aktivitaet::insert(&state.db, &auth.mandant_id, id, Some(&auth.benutzer_id), "geaendert", &diff_str).await.ok();
+        }
+    }
 
     if body.action == BulkAction::Archivieren {
         let db_url = repositories::einstellungen::get(&state.db, "paperless_ngx_url").await.ok().flatten();

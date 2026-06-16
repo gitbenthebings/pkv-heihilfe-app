@@ -23,6 +23,7 @@ export const AKTION_LABELS: Record<string, string> = {
   geaendert: 'Rechnung geändert',
   antrag_zugewiesen: 'Antrag zugewiesen',
   antrag_entfernt: 'Antrag entfernt',
+  antrag_status_geaendert: 'Antrag-Status geändert',
   anhang_hochgeladen: 'Anhang hochgeladen',
   anhang_geloescht: 'Anhang gelöscht',
 }
@@ -32,6 +33,7 @@ export const AKTION_DOT: Record<string, string> = {
   geaendert: 'var(--blue)',
   antrag_zugewiesen: 'var(--teal)',
   antrag_entfernt: 'var(--amber)',
+  antrag_status_geaendert: 'var(--primary)',
   anhang_hochgeladen: 'var(--purple)',
   anhang_geloescht: 'var(--rose)',
 }
@@ -80,6 +82,52 @@ export function parseAenderungen(raw: string): { diffs: AktivitaetDiff[]; extra:
   return { diffs: [], extra: {} }
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  entwurf: 'Entwurf',
+  versendet: 'Versendet',
+  in_bearbeitung: 'In Bearbeitung',
+  beschieden: 'Beschieden',
+  archiviert: 'Archiviert',
+}
+
+function renderExtra(aktion: string, extra: Record<string, string>): React.ReactNode {
+  const typ = extra.antrag_typ === 'pkv' ? 'PKV' : 'Beihilfe'
+  const titel = extra.antrag_titel ? `„${extra.antrag_titel}"` : ''
+
+  switch (aktion) {
+    case 'antrag_status_geaendert':
+      return (
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
+          {typ}-Antrag{titel ? ` ${titel}` : ''}
+          {': '}
+          <span>{STATUS_LABELS[extra.alter_status] ?? extra.alter_status}</span>
+          {' → '}
+          <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{STATUS_LABELS[extra.neuer_status] ?? extra.neuer_status}</span>
+        </div>
+      )
+    case 'antrag_zugewiesen':
+    case 'antrag_entfernt':
+      return (
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
+          {typ}-Antrag{titel ? ` ${titel}` : ''}
+        </div>
+      )
+    case 'anhang_hochgeladen':
+    case 'anhang_geloescht':
+      return extra.dateiname ? (
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontFamily: 'monospace' }}>
+          {extra.dateiname}
+        </div>
+      ) : null
+    default:
+      return (
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {Object.entries(extra).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
+        </div>
+      )
+  }
+}
+
 export function AktivitaetDiffs({ item }: { item: RechnungAktivitaet }) {
   const { diffs, extra } = parseAenderungen(item.aenderungen)
   if (diffs.length === 0 && Object.keys(extra).length === 0) return null
@@ -90,11 +138,7 @@ export function AktivitaetDiffs({ item }: { item: RechnungAktivitaet }) {
           {diffs.map((d, i) => <DiffRow key={i} diff={d} />)}
         </div>
       )}
-      {Object.keys(extra).length > 0 && (
-        <div style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {Object.entries(extra).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
-        </div>
-      )}
+      {Object.keys(extra).length > 0 && renderExtra(item.aktion, extra)}
     </div>
   )
 }
