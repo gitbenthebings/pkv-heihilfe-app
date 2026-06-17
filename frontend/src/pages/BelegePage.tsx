@@ -1,6 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getBelege, uploadBeleg } from '../api/belege'
+import { getBeihilfestellen } from '../api/beihilfestellen'
+import { getPkv } from '../api/pkv'
 import BelegCard from '../components/BelegCard'
 import BelegeUpload from '../components/BelegeUpload'
 import BelegDetailSlider from '../components/BelegDetailSlider'
@@ -30,6 +32,8 @@ const TYP_ITEMS: Array<{ value: BelegTyp | ''; label: string }> = [
 type VerknuepftFilter = '' | 'ja' | 'nein'
 type OcrFilter = '' | 'done' | 'pending'
 type SortMode = 'neu' | 'datum_neu' | 'datum_alt' | 'az'
+// '' | 'bh:{id}' | 'pkv:{id}'
+type StelleFilter = string
 
 // ── Sidebar-Komponenten ────────────────────────────────────────────────────
 function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
@@ -91,6 +95,7 @@ export default function BelegePage() {
   const [datumVon, setDatumVon] = useState('')
   const [datumBis, setDatumBis] = useState('')
   const [typFilter, setTypFilter] = useState<BelegTyp | ''>('')
+  const [stelleFilter, setStelleFilter] = useState<StelleFilter>('')
   const [verknuepftFilter, setVerknuepftFilter] = useState<VerknuepftFilter>('')
   const [ocrFilter, setOcrFilter] = useState<OcrFilter>('')
   const [sort, setSort] = useState<SortMode>('neu')
@@ -127,6 +132,9 @@ export default function BelegePage() {
     setBatchUploading(false)
     if (errors > 0) setBatchError(`${errors} Datei(en) konnten nicht hochgeladen werden`)
   }
+
+  const { data: beihilfestellen = [] } = useQuery({ queryKey: ['beihilfestellen'], queryFn: getBeihilfestellen })
+  const { data: pkvListe = [] } = useQuery({ queryKey: ['pkv'], queryFn: getPkv })
 
   const queryKey = ['belege', q, datumVon, datumBis]
   const { data: allBelege = [], isLoading, error } = useQuery({
@@ -186,9 +194,33 @@ export default function BelegePage() {
     pending: baseForOcrFacets.filter(b => b.ocr_status === null).length,
   }), [baseForOcrFacets])
 
+  // Stelle-Facetten (welche Stellen kommen in den Belegen vor)
+  const stelleCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const b of allBelege) {
+      if (b.beihilfestelle_id) {
+        const key = `bh:${b.beihilfestelle_id}`
+        map[key] = (map[key] ?? 0) + 1
+      }
+      if (b.pkv_id) {
+        const key = `pkv:${b.pkv_id}`
+        map[key] = (map[key] ?? 0) + 1
+      }
+    }
+    return map
+  }, [allBelege])
+
+  function matchesStelleFilter(b: Beleg): boolean {
+    if (!stelleFilter) return true
+    if (stelleFilter.startsWith('bh:')) return b.beihilfestelle_id === stelleFilter.slice(3)
+    if (stelleFilter.startsWith('pkv:')) return b.pkv_id === stelleFilter.slice(4)
+    return true
+  }
+
   const belege = useMemo(() => {
     let list = allBelege.filter(b => {
       if (typFilter && b.typ !== typFilter) return false
+      if (!matchesStelleFilter(b)) return false
       if (verknuepftFilter === 'ja' && b.linked_rechnungen.length === 0 && b.linked_antraege.length === 0) return false
       if (verknuepftFilter === 'nein' && (b.linked_rechnungen.length > 0 || b.linked_antraege.length > 0)) return false
       if (ocrFilter === 'done' && b.ocr_status !== 'done') return false
@@ -212,7 +244,7 @@ export default function BelegePage() {
     return copy
   }, [allBelege, typFilter, verknuepftFilter, ocrFilter, sort])
 
-  const hasActiveFilters = !!(typFilter || verknuepftFilter || ocrFilter || datumVon || datumBis)
+  const hasActiveFilters = !!(typFilter || stelleFilter || verknuepftFilter || ocrFilter || datumVon || datumBis)
 
   const fieldStyle: React.CSSProperties = {
     background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 8,
@@ -314,6 +346,18 @@ export default function BelegePage() {
                 />
               ))}
             </FilterGroup>
+
+            {Object.keys(stelleCounts).length > 0 && (
+              <FilterGroup title="Stelle">
+                <FilterRow label="Alle" count={allBelege.length} active={stelleFilter === ''} dot="var(--primary)" onClick={() => setStelleFilter('')} />
+                {beihilfestellen.filter(b => stelleCounts[`bh:${b.id}`] > 0).map(b => (
+                  <FilterRow key={`bh:${b.id}`} label={b.name} count={stelleCounts[`bh:${b.id}`] ?? 0} active={stelleFilter === `bh:${b.id}`} dot="var(--blue)" onClick={() => setStelleFilter(`bh:${b.id}`)} />
+                ))}
+                {pkvListe.filter(p => stelleCounts[`pkv:${p.id}`] > 0).map(p => (
+                  <FilterRow key={`pkv:${p.id}`} label={p.name} count={stelleCounts[`pkv:${p.id}`] ?? 0} active={stelleFilter === `pkv:${p.id}`} dot="var(--teal)" onClick={() => setStelleFilter(`pkv:${p.id}`)} />
+                ))}
+              </FilterGroup>
+            )}
 
             <FilterGroup title="Verknüpfungen">
               <FilterRow label="Alle" count={verknuepftCounts.alle} active={verknuepftFilter === ''} dot="var(--primary)" onClick={() => setVerknuepftFilter('')} />

@@ -511,14 +511,14 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
       <div
         ref={overlayRef}
         onClick={onClose}
-        style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.35)' }}
+        style={{ position: 'fixed', inset: 0, zIndex: 110, background: 'rgba(0,0,0,0.35)' }}
       />
 
       {/* Panel */}
       <div style={{
         position: 'fixed',
         inset: '0 0 0 auto',
-        zIndex: 50,
+        zIndex: 112,
         width: '100%',
         maxWidth: 440,
         background: 'var(--surface)',

@@ -31,6 +31,8 @@ pub struct Beleg {
     pub has_thumbnail: bool,
     pub ocr_text: Option<String>,
     pub ocr_status: Option<String>,
+    pub beihilfestelle_id: Option<String>,
+    pub pkv_id: Option<String>,
     #[serde(skip)]
     pub pfad: String,
     #[serde(skip)]
@@ -47,4 +49,7 @@ pub struct UpdateBeleg {
     pub typ: Option<String>,
     pub notiz: Option<String>,
     pub datum: Option<String>,
+    // Direkte Zuweisung (nicht COALESCE): null = Feld leeren
+    pub beihilfestelle_id: Option<String>,
+    pub pkv_id: Option<String>,
 }

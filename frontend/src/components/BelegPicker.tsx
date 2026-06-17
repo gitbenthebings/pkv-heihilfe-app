@@ -6,11 +6,29 @@ import type { Beleg } from '../types'
 
 interface Props {
   excludeIds?: string[]
+  /** Wenn gesetzt, werden Belege einer anderen Stelle ausgeblendet. */
+  beihilfestelleId?: string | null
+  pkvId?: string | null
   onSelect: (beleg: Beleg) => void
   onCancel: () => void
 }
 
-export default function BelegPicker({ excludeIds = [], onSelect, onCancel }: Props) {
+function isCompatible(beleg: Beleg, beihilfestelleId?: string | null, pkvId?: string | null): boolean {
+  const hasContext = beihilfestelleId || pkvId
+  if (!hasContext) return true
+  // Belege die eindeutig einer anderen Stelle gehören, ausblenden
+  if (beihilfestelleId) {
+    if (beleg.pkv_id) return false  // PKV-Beleg in BH-Kontext
+    if (beleg.beihilfestelle_id && beleg.beihilfestelle_id !== beihilfestelleId) return false
+  }
+  if (pkvId) {
+    if (beleg.beihilfestelle_id) return false  // BH-Beleg in PKV-Kontext
+    if (beleg.pkv_id && beleg.pkv_id !== pkvId) return false
+  }
+  return true
+}
+
+export default function BelegPicker({ excludeIds = [], beihilfestelleId, pkvId, onSelect, onCancel }: Props) {
   const [q, setQ] = useState('')
 
   const { data: belege = [], isLoading } = useQuery({
@@ -18,7 +36,9 @@ export default function BelegPicker({ excludeIds = [], onSelect, onCancel }: Pro
     queryFn: () => getBelege({ q: q || undefined }),
   })
 
-  const available = belege.filter(b => !excludeIds.includes(b.id))
+  const notExcluded = belege.filter(b => !excludeIds.includes(b.id))
+  const available = notExcluded.filter(b => isCompatible(b, beihilfestelleId, pkvId))
+  const hiddenCount = notExcluded.length - available.length
 
   return (
     <div style={{
@@ -70,6 +90,11 @@ export default function BelegPicker({ excludeIds = [], onSelect, onCancel }: Pro
           {!isLoading && available.length === 0 && (
             <p style={{ fontSize: 12, color: 'var(--text-subtle)', padding: '12px 16px', margin: 0 }}>
               {belege.length === 0 ? 'Keine Belege vorhanden' : 'Alle passenden Belege bereits verknüpft'}
+            </p>
+          )}
+          {!isLoading && hiddenCount > 0 && (
+            <p style={{ fontSize: 11, color: 'var(--text-subtle)', padding: '6px 16px 0', margin: 0, fontStyle: 'italic' }}>
+              {hiddenCount} Beleg{hiddenCount !== 1 ? 'e' : ''} ausgeblendet (andere Stelle)
             </p>
           )}
           {available.map(b => (

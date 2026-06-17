@@ -282,6 +282,8 @@ export interface Beleg {
   has_thumbnail: boolean
   ocr_text: string | null
   ocr_status: 'done' | 'failed' | 'unavailable' | null
+  beihilfestelle_id: string | null
+  pkv_id: string | null
   linked_rechnungen: LinkedRechnung[]
   linked_antraege: LinkedAntrag[]
 }
@@ -291,6 +293,8 @@ export interface UpdateBeleg {
   typ?: BelegTyp | null
   notiz?: string | null
   datum?: string | null
+  beihilfestelle_id?: string | null
+  pkv_id?: string | null
 }
 
 export type BulkAction = 'bezahlt' | 'beihilfe_eingereicht' | 'pkv_eingereicht' | 'archivieren' | 'dearchivieren'

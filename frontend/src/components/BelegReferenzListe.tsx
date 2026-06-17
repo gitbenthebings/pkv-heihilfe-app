@@ -14,7 +14,14 @@ import type { Beleg, BelegTyp } from '../types'
 const isBescheidTyp = (t: BelegTyp | null) => t === 'erstbescheid' || t === 'widerspruchsbescheid'
 
 interface RechnungProps { mode: 'rechnung'; id: string; thumbnailView?: boolean }
-interface AntragProps  { mode: 'antrag';   id: string; antragTyp?: 'beihilfe' | 'pkv'; thumbnailView?: boolean }
+interface AntragProps  {
+  mode: 'antrag'
+  id: string
+  antragTyp?: 'beihilfe' | 'pkv'
+  beihilfestelleId?: string | null
+  pkvId?: string | null
+  thumbnailView?: boolean
+}
 type Props = RechnungProps | AntragProps
 
 function formatBytes(bytes: number): string {
@@ -254,6 +261,8 @@ export default function BelegReferenzListe(props: Props) {
   const qc = useQueryClient()
   const queryKey = ['belege', props.mode, props.id]
   const antragTyp = props.mode === 'antrag' ? props.antragTyp : undefined
+  const beihilfestelleId = props.mode === 'antrag' ? props.beihilfestelleId : undefined
+  const pkvId = props.mode === 'antrag' ? props.pkvId : undefined
   const thumbnailView = props.thumbnailView ?? false
 
   const [showPicker, setShowPicker] = useState(false)
@@ -424,6 +433,8 @@ export default function BelegReferenzListe(props: Props) {
       {showPicker && (
         <BelegPicker
           excludeIds={belege.map(b => b.id)}
+          beihilfestelleId={beihilfestelleId}
+          pkvId={pkvId}
           onSelect={b => { addMut.mutate(b.id); setShowPicker(false) }}
           onCancel={() => setShowPicker(false)}
         />

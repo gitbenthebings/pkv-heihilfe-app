@@ -5,7 +5,7 @@ const SELECT: &str =
     "SELECT id, dateiname, bezeichnung, pfad, thumbnail_pfad, groesse,
             typ, notiz, datum,
             hochgeladen_am, (thumbnail_pfad IS NOT NULL) AS has_thumbnail,
-            ocr_text, ocr_status
+            ocr_text, ocr_status, beihilfestelle_id, pkv_id
      FROM beleg";
 
 pub async fn list(
@@ -115,16 +115,20 @@ pub async fn update(
 ) -> Result<Beleg, AppError> {
     sqlx::query(
         "UPDATE beleg SET
-            bezeichnung = COALESCE(?, bezeichnung),
-            typ         = COALESCE(?, typ),
-            notiz       = COALESCE(?, notiz),
-            datum       = COALESCE(?, datum)
+            bezeichnung       = COALESCE(?, bezeichnung),
+            typ               = COALESCE(?, typ),
+            notiz             = COALESCE(?, notiz),
+            datum             = COALESCE(?, datum),
+            beihilfestelle_id = ?,
+            pkv_id            = ?
          WHERE id = ? AND mandant_id = ?",
     )
     .bind(input.bezeichnung.as_deref())
     .bind(input.typ.as_deref())
     .bind(input.notiz.as_deref())
     .bind(input.datum.as_deref())
+    .bind(input.beihilfestelle_id.as_deref())
+    .bind(input.pkv_id.as_deref())
     .bind(id)
     .bind(mandant_id)
     .execute(db)

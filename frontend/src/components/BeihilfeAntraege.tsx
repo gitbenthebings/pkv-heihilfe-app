@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { deleteAntrag } from '../api/beihilfe_antraege'
 import type { BeihilfeAntrag, Beihilfestelle, Pkv, AntragStatus } from '../types'
@@ -21,27 +21,19 @@ const STATUS_STYLE: Record<AntragStatus, { bg: string; color: string; border: st
   archiviert:     { bg: 'var(--surface-hi)',  color: 'var(--text-subtle)', border: 'var(--border)' },
 }
 
-function Badge({ label, bg, color, border, size = 10 }: {
-  label: string; bg: string; color: string; border: string; size?: number
-}) {
-  return (
-    <span style={{
-      background: bg, color, border: `1px solid ${border}`,
-      fontSize: size, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-      whiteSpace: 'nowrap', letterSpacing: '.03em',
-    }}>{label}</span>
-  )
-}
-
 function TypeBadge({ typ }: { typ: string }) {
   return typ === 'pkv'
-    ? <Badge label="PKV" bg="var(--teal-dim)"  color="var(--teal)"  border="rgba(0,196,176,.2)"  size={9} />
-    : <Badge label="BH"  bg="var(--blue-dim)"  color="var(--blue)"  border="rgba(74,136,245,.2)" size={9} />
+    ? <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--teal-dim)', color: 'var(--teal)', border: '1px solid rgba(0,196,176,.2)' }}>PKV</span>
+    : <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--blue-dim)', color: 'var(--blue)', border: '1px solid rgba(74,136,245,.2)' }}>BH</span>
 }
 
 function StatusBadge({ status }: { status: AntragStatus }) {
   const s = STATUS_STYLE[status] ?? STATUS_STYLE.entwurf
-  return <Badge label={STATUS_LABELS[status] ?? status} bg={s.bg} color={s.color} border={s.border} />
+  return (
+    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color, border: `1px solid ${s.border}`, whiteSpace: 'nowrap' }}>
+      {STATUS_LABELS[status] ?? status}
+    </span>
+  )
 }
 
 function MiniStepTrack({ status }: { status: AntragStatus }) {
@@ -65,24 +57,28 @@ interface AntragSummary {
   betrag: number
   erwartet: number | null
   tatsaechlich: number | null
+  has_widerspruch: boolean
 }
 
-function AntragCard({
-  antrag, stelle, pkv, active, focused, onClick, onDelete, summary,
-}: {
+function daysSince(dateStr: string | null): number | null {
+  if (!dateStr) return null
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000)
+}
+
+function AntragCard({ antrag, stelle, pkv, active, onClick, onDelete, summary }: {
   antrag: BeihilfeAntrag
   stelle: Beihilfestelle | undefined
   pkv: Pkv | undefined
   active: boolean
-  focused?: boolean
   onClick: () => void
   onDelete?: () => void
   summary?: AntragSummary
 }) {
   const [hov, setHov] = useState(false)
-  const institutionName = antrag.typ === 'pkv'
-    ? (pkv?.name ?? antrag.pkv_versicherer ?? '—')
-    : (stelle?.name ?? '—')
+  const isPkv = antrag.typ === 'pkv'
+  const tone = isPkv ? 'teal' : 'blue'
+  const status = antrag.status as AntragStatus
+  const institutionName = isPkv ? (pkv?.name ?? antrag.pkv_versicherer ?? '—') : (stelle?.name ?? '—')
 
   return (
     <div
@@ -90,88 +86,121 @@ function AntragCard({
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        padding: '13px 16px', borderBottom: '1px solid var(--row-border)',
-        cursor: 'pointer',
-        borderLeft: active ? '3px solid var(--primary)' : '3px solid transparent',
-        background: active ? 'var(--row-active)' : focused ? 'var(--row-hover)' : hov ? 'var(--row-hover)' : 'transparent',
-        transition: 'background .12s, border-color .12s',
-        position: 'relative',
+        background: 'var(--surface)', borderRadius: 12, overflow: 'hidden',
+        display: 'flex', flexDirection: 'column', position: 'relative', cursor: 'pointer',
+        border: active ? '2px solid var(--primary)' : '1px solid var(--border)',
+        boxShadow: hov ? '0 10px 28px rgba(0,0,0,0.2)' : 'none',
+        transform: hov ? 'translateY(-2px)' : 'none',
+        transition: 'transform 0.14s, box-shadow 0.14s, border-color 0.14s',
       }}
     >
-      {/* Row 1: badges + nr */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
-        <TypeBadge typ={antrag.typ} />
-        <StatusBadge status={antrag.status as AntragStatus} />
-        <span style={{ fontSize: 9, color: 'var(--text-subtle)', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-          #{String(antrag.referenz_nr).padStart(4, '0')}
-        </span>
-      </div>
-
-      {/* Row 2: title + institution */}
-      <div style={{ marginBottom: 8 }}>
-        <div style={{
-          fontSize: 13, fontWeight: 600, color: 'var(--text)',
-          marginBottom: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }}>
-          {antrag.titel ?? (
-            <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic', fontWeight: 400 }}>
-              Kein Titel
+      {/* Type header */}
+      <div style={{
+        padding: '12px 14px 11px',
+        background: `color-mix(in srgb, var(--${tone}) 10%, var(--surface-alt))`,
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 9, flexWrap: 'wrap' }}>
+          <TypeBadge typ={antrag.typ} />
+          <StatusBadge status={status} />
+          {summary?.has_widerspruch && (
+            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--rose-dim)', color: 'var(--rose)', border: '1px solid rgba(240,96,112,.2)', whiteSpace: 'nowrap' }}>
+              Widerspruch
             </span>
           )}
+          <span style={{ fontSize: 9, color: 'var(--text-subtle)', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+            #{String(antrag.referenz_nr).padStart(4, '0')}
+          </span>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text-subtle)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <MiniStepTrack status={status} />
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: '12px 14px 14px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{
+          fontSize: 13.5, fontWeight: 700, color: 'var(--text)', lineHeight: 1.35,
+          marginBottom: 4,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          minHeight: 37,
+        }}>
+          {antrag.titel ?? <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic', fontWeight: 400 }}>Kein Titel</span>}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 10 }}>
           {institutionName}
         </div>
+
+        {summary && summary.betrag > 0 && (
+          <div style={{ marginTop: 'auto' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
+              {fmtEur(summary.betrag)}
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 1, flexWrap: 'wrap' }}>
+              {summary.erwartet != null && (
+                <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+                  erw. {fmtEur(summary.erwartet)}
+                </span>
+              )}
+              {summary.tatsaechlich != null && (
+                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', fontVariantNumeric: 'tabular-nums' }}>
+                  erst. {fmtEur(summary.tatsaechlich)}
+                </span>
+              )}
+            </div>
+            {summary.tatsaechlich != null && summary.erwartet != null && summary.erwartet > 0 && (
+              <div style={{ height: 3, borderRadius: 2, background: 'var(--surface-alt)', overflow: 'hidden', marginTop: 5 }}>
+                <div style={{
+                  width: `${Math.min(100, (summary.tatsaechlich / summary.erwartet) * 100)}%`,
+                  height: '100%', borderRadius: 2,
+                  background: summary.tatsaechlich >= summary.erwartet ? 'var(--green)' : 'var(--amber)',
+                  transition: 'width .5s ease',
+                }} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Row 2.5: Financial summary */}
-      {summary && summary.betrag > 0 && (
-        <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 9, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-            {fmtEur(summary.betrag)}
-          </span>
-          {summary.erwartet != null && (
-            <>
-              <span style={{ color: 'var(--border-hi)', fontSize: 8 }}>·</span>
-              <span style={{ fontSize: 9, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
-                erw. {fmtEur(summary.erwartet)}
-              </span>
-            </>
-          )}
-          {summary.tatsaechlich != null && summary.erwartet != null && summary.erwartet > 0 && (
-            <div style={{ flex: 1, minWidth: 40, height: 3, background: 'var(--surface-alt)', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{
-                width: `${Math.min(100, (summary.tatsaechlich / summary.erwartet) * 100)}%`,
-                height: '100%',
-                background: summary.tatsaechlich >= summary.erwartet ? 'var(--green)' : 'var(--amber)',
-                borderRadius: 2, transition: 'width .5s ease',
-              }} />
-            </div>
-          )}
+      {/* Footer */}
+      <div style={{
+        padding: '8px 14px 10px', borderTop: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+          {['versendet', 'in_bearbeitung'].includes(antrag.status) && antrag.versendet_am != null
+            ? (() => { const d = daysSince(antrag.versendet_am); return d != null ? `seit ${d} Tag${d === 1 ? '' : 'en'}` : new Date(antrag.erstellt_am).toLocaleDateString('de-DE') })()
+            : new Date(antrag.erstellt_am).toLocaleDateString('de-DE')}
+        </span>
+        {antrag.status === 'entwurf' && onDelete && (
+          <span
+            onClick={e => { e.stopPropagation(); onDelete() }}
+            style={{
+              fontSize: 9, fontWeight: 700, color: 'var(--rose)', cursor: 'pointer',
+              background: hov ? 'var(--rose-dim)' : 'transparent',
+              padding: '1px 7px', borderRadius: 10,
+              border: `1px solid ${hov ? 'rgba(240,96,112,.2)' : 'transparent'}`,
+              transition: 'all .12s',
+            }}
+          >Löschen</span>
+        )}
+      </div>
+
+      {/* Hover overlay */}
+      {hov && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'var(--overlay)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'overlay-in 0.15s ease',
+          pointerEvents: 'none',
+        }}>
+          <span style={{
+            background: 'var(--primary)', color: '#fff',
+            fontSize: 12, fontWeight: 600,
+            padding: '8px 16px', borderRadius: 20,
+            boxShadow: '0 4px 14px rgba(0,0,0,0.3)',
+          }}>Antrag öffnen</span>
         </div>
       )}
-
-      {/* Row 3: MiniStepTrack + date + delete */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <MiniStepTrack status={antrag.status as AntragStatus} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 9, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
-            {new Date(antrag.erstellt_am).toLocaleDateString('de-DE')}
-          </span>
-          {antrag.status === 'entwurf' && hov && onDelete && (
-            <span
-              onClick={e => { e.stopPropagation(); onDelete() }}
-              style={{
-                fontSize: 9, fontWeight: 700, color: 'var(--rose)', cursor: 'pointer',
-                background: 'var(--rose-dim)', padding: '1px 7px', borderRadius: 10,
-                border: '1px solid rgba(240,96,112,.2)',
-              }}
-            >
-              Löschen
-            </span>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
@@ -187,8 +216,6 @@ interface Props {
 
 export default function BeihilfeAntraege({ antraege, beihilfestellen, pkvListe, selectedId, onSelect, summaries }: Props) {
   const qc = useQueryClient()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [focusedIdx, setFocusedIdx] = useState<number>(-1)
 
   const stelleMap = Object.fromEntries(beihilfestellen.map(b => [b.id, b]))
   const pkvMap = Object.fromEntries(pkvListe.map(p => [p.id, p]))
@@ -197,27 +224,6 @@ export default function BeihilfeAntraege({ antraege, beihilfestellen, pkvListe, 
     mutationFn: (id: string) => deleteAntrag(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['antraege'] }),
   })
-
-  // Wenn sich die Auswahl von außen ändert, fokussierten Index synchronisieren
-  useEffect(() => {
-    const idx = antraege.findIndex(a => a.id === selectedId)
-    if (idx >= 0) setFocusedIdx(idx)
-  }, [selectedId, antraege])
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (antraege.length === 0) return
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      const next = Math.min(focusedIdx + 1, antraege.length - 1)
-      setFocusedIdx(next)
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      const prev = Math.max(focusedIdx - 1, 0)
-      setFocusedIdx(prev)
-    } else if (e.key === 'Enter' && focusedIdx >= 0) {
-      onSelect(antraege[focusedIdx].id)
-    }
-  }, [antraege, focusedIdx, onSelect])
 
   if (antraege.length === 0) {
     return (
@@ -228,30 +234,24 @@ export default function BeihilfeAntraege({ antraege, beihilfestellen, pkvListe, 
   }
 
   return (
-    <div
-      ref={containerRef}
-      tabIndex={0}
-      onKeyDown={handleKeyDown}
-      style={{ outline: 'none' }}
-    >
-      {antraege.map((a, i) => (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+      gap: 16,
+      padding: '18px 24px 32px',
+    }}>
+      {antraege.map(a => (
         <AntragCard
           key={a.id}
           antrag={a}
           stelle={stelleMap[a.beihilfestelle_id ?? '']}
           pkv={pkvMap[a.pkv_id ?? '']}
           active={a.id === selectedId}
-          focused={i === focusedIdx && a.id !== selectedId}
-          onClick={() => { setFocusedIdx(i); onSelect(a.id) }}
+          onClick={() => onSelect(a.id)}
           onDelete={() => deleteMut.mutate(a.id)}
           summary={summaries?.[a.id]}
         />
       ))}
-      {antraege.length > 1 && (
-        <div style={{ padding: '4px 14px 8px', fontSize: 9, color: 'var(--text-subtle)', opacity: 0.6 }}>
-          ↑↓ navigieren · Enter öffnen
-        </div>
-      )}
     </div>
   )
 }

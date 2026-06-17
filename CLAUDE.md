@@ -91,7 +91,7 @@ pkv-app/
         │   ├── pkv.ts             ← getPkv, createPkv … addPersonToPkv, removePersonFromPkv
         │   └── …
         ├── components/
-        │   ├── Layout.tsx                ← fullBleed für /belege + /stammdaten
+        │   ├── Layout.tsx                ← fullBleed für /belege, /stammdaten, /dashboard, /aktivitaetslog
         │   ├── RechnungDetailSlider.tsx  ← Tabs: Details | Anträge | Anhänge | Aktivität
         │   ├── RechnungForm.tsx
         │   ├── RechnungenTable.tsx
@@ -111,7 +111,7 @@ pkv-app/
         │   ├── BescheidAnhangUpload.tsx
         │   ├── AnhangUpload.tsx
         │   ├── ScanEditor.tsx
-        │   ├── AktivitaetsLog.tsx
+        │   ├── AktivitaetsLog.tsx        ← Exports: AKTION_LABELS, AKTION_DOT, parseAenderungen, AktivitaetDiffs, AktivitaetItem, formatTimestamp
         │   ├── BREIndikator.tsx
         │   ├── GlobalSearch.tsx
         │   ├── PersonFilter.tsx
@@ -122,10 +122,10 @@ pkv-app/
         │   ├── DashboardPage.tsx
         │   ├── RechnungenPage.tsx
         │   ├── BeihilfeAntraegePage.tsx
-        │   ├── BelegePage.tsx       ← fullBleed; Sidebar-Filter + Grid + BelegDetailSlider
-        │   ├── StammdatenPage.tsx   ← fullBleed; Sidebar-Nav (6 Bereiche)
+        │   ├── BelegePage.tsx       ← fullBleed; Sidebar-Filter + Grid + BelegDetailSlider; Sort: neu|datum_neu|datum_alt|az
+        │   ├── StammdatenPage.tsx   ← fullBleed; Sidebar-Nav (6 Bereiche) + MobileTabBar
         │   ├── AuswertungPage.tsx
-        │   ├── AktivitaetsLogPage.tsx
+        │   ├── AktivitaetsLogPage.tsx ← fullBleed; Sidebar Person/Aktion-Filter + 2× MobileTabBar; Tag-Gruppen
         │   └── UeberPage.tsx
         ├── hooks/
         │   ├── useAuth.ts
@@ -405,6 +405,8 @@ Vollbild-Layout (fullBleed) mit Sidebar-Filter + Kachelgrid.
 
 **BelegDetailSlider**: 3 Tabs — Details (Metadaten editierbar), Verknüpfungen (Rechnungen + Anträge als LinkRows), Inhalt (OCR-Text mit Suche). DocViewer schiebt als 470px-Panel von rechts ein und verschiebt den Haupt-Panel nach links.
 
+**Sortierung**: `neu` (Hochgeladen, neueste) | `datum_neu` (Belegdatum, neueste) | `datum_alt` (Belegdatum, älteste) | `az` (Name A–Z); Belege ohne `datum` sortieren bei Datums-Modi ans Ende.
+
 **OCR**: Backend startet Tesseract asynchron nach Upload; Frontend pollt (`refetchInterval`) bis `ocr_status === 'done'`.
 
 **Verknüpfungen**: Ein Beleg kann mit beliebig vielen Rechnungen und Anträgen verknüpft werden. `beleg_rechnung` / `beleg_antrag` sind reine Join-Tabellen ohne zusätzliche Semantik.
@@ -519,6 +521,28 @@ Vollbild-Layout (fullBleed) mit Sidebar-Navigation (analoges Muster wie BelegePa
 
 **Einstellungen-Tab** enthält: Logo (SVG), Scan-Parameter, Paperless NGX, n8n-Webhooks, Google Drive.
 
+**Mobile**: MobileTabBar — horizontal scrollbare Tab-Leiste (`className="sm:hidden"`) ersetzt Desktop-Sidebar. Sidebar selbst: `className="hidden sm:flex"`.
+
+---
+
+## UI: Aktivitätslog (`AktivitaetsLogPage`)
+
+Vollbild-Layout (fullBleed), `flex flex-col sm:flex-row`.
+
+**Desktop-Sidebar** (220 px): FilterGroup „Person" + FilterGroup „Aktion" mit `FilterRow`-Komponente (dot, Label, Count-Badge).
+
+**Mobile**: zwei horizontal scrollbare Tab-Leisten (`sm:hidden`):
+1. Person-Filter (über Toolbar)
+2. Aktions-Filter (unter Toolbar)
+
+**Hauptbereich**: Einträge nach Kalendertagen gruppiert (`TAG-HEADER` uppercase, Karten pro Eintrag). Klick auf Karte öffnet `RechnungDetailSlider`.
+
+**Datenquellen**: `getAllAktivitaet`, `getRechnungen()` (für Referenz-Nr + Person), `getPersonen`. Facet-Counts per `useMemo`.
+
+**Suche**: nach Person-Name oder Rechnungs-Referenz (`R-0001`-Format).
+
+**AktivitaetsLog-Komponente** (`components/AktivitaetsLog.tsx`): dual-use — `AktivitaetItem` für den Slider-Tab (vollständig mit Dot + Header), `AktivitaetDiffs` nur für Diff-Zeilen (ohne Header, für Seiten-Karten). Alle CSS-Farben über `var(--…)`, kein Tailwind gray/dark:.
+
 ---
 
 ## UI: Beihilfe-Anträge (`BeihilfeAntraegePage`)
@@ -586,8 +610,10 @@ Overlay von rechts. Kein separater Seitenaufruf.
 - **Optimistic UI**: Änderungen sofort in der UI reflektieren
 - **Mobile-First**: Breakpoint `sm` = 640px
 - **Detail-Slider** statt Inline-Bearbeitung in Tabellen
-- **Design-System**: Chalk (Light) / Carbon (Dark) via CSS Custom Properties
-- **fullBleed-Seiten** (`/belege`, `/stammdaten`): `height: calc(100vh - 46px)`, kein Padding-Container
+- **Design-System**: Chalk (Light) / Carbon (Dark) via CSS Custom Properties; alle Farben über `var(--…)`, niemals Tailwind `gray`/`dark:` in Design-System-Komponenten
+- **fullBleed-Seiten** (`/belege`, `/stammdaten`, `/dashboard`, `/aktivitaetslog`): `height: calc(100vh - 46px)`, kein Padding-Container
+- **MobileTabBar-Muster** (fullBleed-Seiten): `className="sm:hidden"`, `overflowX: 'auto'`, `minWidth: 'max-content'`, `borderBottom: 2px solid primary/transparent` als Aktiv-Indikator; Sidebar: `className="hidden sm:flex"`
+- **FilterGroup / FilterRow** (Sidebar-Muster aus Belege v4 Design): 9px Uppercase-Label, 8px Dot, 13px Label-Text, 11px Count-Badge mit `tabular-nums`
 
 ### Kern-CSS-Variablen
 
@@ -637,4 +663,4 @@ MULTIPAGE_SCAN=true
 
 ---
 
-*Letzte Aktualisierung: 2026-06-14 | Version: 2.4*
+*Letzte Aktualisierung: 2026-06-15 | Version: 2.5*

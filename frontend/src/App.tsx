@@ -41,7 +41,6 @@ export default function App() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="rechnungen" element={<RechnungenPage />} />
             <Route path="beihilfe-antraege" element={<BeihilfeAntraegePage />} />
-            <Route path="beihilfe-antraege/:id" element={<BeihilfeAntraegePage />} />
             <Route path="auswertung" element={<AuswertungPage />} />
             <Route path="aktivitaetslog" element={<AktivitaetsLogPage />} />
             <Route path="belege" element={<BelegePage />} />

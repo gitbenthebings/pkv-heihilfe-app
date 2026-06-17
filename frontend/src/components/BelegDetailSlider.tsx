@@ -7,6 +7,8 @@ import {
   addBelegToAntrag, removeBelegFromAntrag,
   retriggerOcr,
 } from '../api/belege'
+import { getBeihilfestellen } from '../api/beihilfestellen'
+import { getPkv } from '../api/pkv'
 import { TYP_LABELS } from './BelegeUpload'
 import VerknuepfungPicker from './VerknuepfungPicker'
 import { useToast } from '../context/ToastContext'
@@ -425,6 +427,10 @@ export default function BelegDetailSlider({ belegId, onClose }: Props) {
   const [typ, setTyp] = useState<BelegTyp | ''>('')
   const [datum, setDatum] = useState('')
   const [notiz, setNotiz] = useState('')
+  const [stelleVal, setStelleVal] = useState('')  // '' | 'bh:{id}' | 'pkv:{id}'
+
+  const { data: beihilfestellen = [] } = useQuery({ queryKey: ['beihilfestellen'], queryFn: getBeihilfestellen })
+  const { data: pkvListe = [] } = useQuery({ queryKey: ['pkv'], queryFn: getPkv })
 
   useEffect(() => {
     if (beleg) {
@@ -432,6 +438,9 @@ export default function BelegDetailSlider({ belegId, onClose }: Props) {
       setTyp(beleg.typ ?? '')
       setDatum(beleg.datum ?? '')
       setNotiz(beleg.notiz ?? '')
+      if (beleg.beihilfestelle_id) setStelleVal(`bh:${beleg.beihilfestelle_id}`)
+      else if (beleg.pkv_id) setStelleVal(`pkv:${beleg.pkv_id}`)
+      else setStelleVal('')
       setSaveError(null)
     }
   }, [beleg?.id])
@@ -457,6 +466,8 @@ export default function BelegDetailSlider({ belegId, onClose }: Props) {
       typ: (typ || null) as BelegTyp | null,
       datum: datum || null,
       notiz: notiz || null,
+      beihilfestelle_id: stelleVal.startsWith('bh:') ? stelleVal.slice(3) : null,
+      pkv_id: stelleVal.startsWith('pkv:') ? stelleVal.slice(4) : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['belege'] })
@@ -692,6 +703,21 @@ export default function BelegDetailSlider({ belegId, onClose }: Props) {
                     {(Object.entries(TYP_LABELS) as [BelegTyp, string][]).map(([k, v]) => (
                       <option key={k} value={k}>{v}</option>
                     ))}
+                  </select>
+                </Field>
+                <Field label="Stelle">
+                  <select value={stelleVal} onChange={e => setStelleVal(e.target.value)} style={FIELD_STYLE}>
+                    <option value="">– keine –</option>
+                    {beihilfestellen.length > 0 && (
+                      <optgroup label="Beihilfestelle">
+                        {beihilfestellen.map(b => <option key={b.id} value={`bh:${b.id}`}>{b.name}</option>)}
+                      </optgroup>
+                    )}
+                    {pkvListe.length > 0 && (
+                      <optgroup label="PKV">
+                        {pkvListe.map(p => <option key={p.id} value={`pkv:${p.id}`}>{p.name}</option>)}
+                      </optgroup>
+                    )}
                   </select>
                 </Field>
                 <Field label="Datum">
