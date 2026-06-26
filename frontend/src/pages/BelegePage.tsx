@@ -35,6 +35,83 @@ type SortMode = 'neu' | 'datum_neu' | 'datum_alt' | 'az'
 // '' | 'bh:{id}' | 'pkv:{id}'
 type StelleFilter = string
 
+const CARD_GRID_STYLE: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+  gap: 16,
+}
+
+// ── Zeitbasierte Gruppierung ────────────────────────────────────────────────
+// Gruppiert wird passend zur aktiven Sortierung: bei Datums-Sortierungen
+// (Hochgeladen/Belegdatum) nach relativen Zeiträumen, bei Name (A–Z) entfällt
+// die Gruppierung vorerst.
+
+function toLocalDate(value: string): Date {
+  const isoDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
+  if (isoDateOnly) {
+    const [y, m, d] = value.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+  return new Date(value)
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function startOfWeek(d: Date): Date {
+  const montagOffset = (d.getDay() + 6) % 7 // 0 = Montag dieser Woche
+  const montag = new Date(d)
+  montag.setDate(d.getDate() - montagOffset)
+  return startOfDay(montag)
+}
+
+function zeitGruppenLabel(value: string, heute: Date): string {
+  const datum = toLocalDate(value)
+  if (isNaN(datum.getTime())) return 'Unbekannt'
+
+  const tag = startOfDay(datum)
+  const heuteTag = startOfDay(heute)
+  const diffTage = Math.round((heuteTag.getTime() - tag.getTime()) / 86400000)
+
+  if (diffTage <= 0) return 'Heute'
+  if (diffTage === 1) return 'Gestern'
+
+  const wocheHeute = startOfWeek(heute)
+  if (tag >= wocheHeute) return 'Diese Woche'
+
+  const wocheLetzte = new Date(wocheHeute)
+  wocheLetzte.setDate(wocheHeute.getDate() - 7)
+  if (tag >= wocheLetzte) return 'Letzte Woche'
+
+  const monatHeute = new Date(heute.getFullYear(), heute.getMonth(), 1)
+  if (tag >= monatHeute) return 'Dieser Monat'
+
+  const monatLetzter = new Date(heute.getFullYear(), heute.getMonth() - 1, 1)
+  if (tag >= monatLetzter) return 'Letzter Monat'
+
+  return datum.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+}
+
+// Belege sind bereits sortiert; gleiche Labels sind daher immer benachbart
+// und können einfach zu Gruppen zusammengefasst werden (Reihenfolge bleibt erhalten).
+function gruppiereBelege(belege: Beleg[], sort: SortMode): Array<{ label: string; items: Beleg[] }> | null {
+  if (sort === 'az') return null
+
+  const heute = new Date()
+  const feld = sort === 'neu' ? (b: Beleg) => b.hochgeladen_am as string | null : (b: Beleg) => b.datum
+
+  const gruppen: Array<{ label: string; items: Beleg[] }> = []
+  for (const b of belege) {
+    const wert = feld(b)
+    const label = wert ? zeitGruppenLabel(wert, heute) : 'Ohne Datum'
+    const letzte = gruppen[gruppen.length - 1]
+    if (letzte && letzte.label === label) letzte.items.push(b)
+    else gruppen.push({ label, items: [b] })
+  }
+  return gruppen
+}
+
 // ── Sidebar-Komponenten ────────────────────────────────────────────────────
 function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -243,6 +320,8 @@ export default function BelegePage() {
     if (sort === 'az') return copy.sort((a, b) => (a.bezeichnung || a.dateiname).localeCompare(b.bezeichnung || b.dateiname, 'de'))
     return copy
   }, [allBelege, typFilter, verknuepftFilter, ocrFilter, sort])
+
+  const grouped = useMemo(() => gruppiereBelege(belege, sort), [belege, sort])
 
   const hasActiveFilters = !!(typFilter || stelleFilter || verknuepftFilter || ocrFilter || datumVon || datumBis)
 
@@ -487,20 +566,43 @@ export default function BelegePage() {
               </div>
             )}
             {!isLoading && belege.length > 0 && (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
-                gap: 16,
-              }}>
-                {belege.map(b => (
-                  <BelegCard
-                    key={b.id}
-                    beleg={b}
-                    selected={selectedBelegId === b.id}
-                    onOpenDetail={setSelectedBelegId}
-                  />
-                ))}
-              </div>
+              grouped ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
+                  {grouped.map(g => (
+                    <div key={g.label}>
+                      <div style={{
+                        fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)',
+                        letterSpacing: '0.05em', textTransform: 'uppercase',
+                        marginBottom: 10, paddingBottom: 6,
+                        borderBottom: '1px solid var(--border)',
+                      }}>
+                        {g.label}
+                      </div>
+                      <div style={CARD_GRID_STYLE}>
+                        {g.items.map(b => (
+                          <BelegCard
+                            key={b.id}
+                            beleg={b}
+                            selected={selectedBelegId === b.id}
+                            onOpenDetail={setSelectedBelegId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={CARD_GRID_STYLE}>
+                  {belege.map(b => (
+                    <BelegCard
+                      key={b.id}
+                      beleg={b}
+                      selected={selectedBelegId === b.id}
+                      onOpenDetail={setSelectedBelegId}
+                    />
+                  ))}
+                </div>
+              )
             )}
           </div>
         </div>

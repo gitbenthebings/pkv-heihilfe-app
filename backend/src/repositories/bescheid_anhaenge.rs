@@ -2,7 +2,7 @@ use crate::{db::Db, errors::AppError, models::bescheid_anhang::BescheidAnhang};
 use chrono::Utc;
 
 const SELECT: &str =
-    "SELECT id, bescheid_id, dateiname, pfad, groesse, hochgeladen_am FROM bescheid_anhang";
+    "SELECT id, bescheid_id, dateiname, pfad, groesse, hochgeladen_am, ocr_status, ocr_text FROM bescheid_anhang";
 
 pub async fn list_by_bescheid(db: &Db, bescheid_id: &str) -> Result<Vec<BescheidAnhang>, AppError> {
     let items = sqlx::query_as::<_, BescheidAnhang>(&format!(
@@ -50,6 +50,25 @@ pub async fn create(
     .await?;
 
     get_by_id(db, id, bescheid_id).await
+}
+
+pub async fn update_ocr(
+    db: &Db,
+    id: &str,
+    bescheid_id: &str,
+    status: &str,
+    text: Option<&str>,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE bescheid_anhang SET ocr_status = ?, ocr_text = ? WHERE id = ? AND bescheid_id = ?",
+    )
+    .bind(status)
+    .bind(text)
+    .bind(id)
+    .bind(bescheid_id)
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 pub async fn delete(db: &Db, id: &str, bescheid_id: &str) -> Result<(), AppError> {

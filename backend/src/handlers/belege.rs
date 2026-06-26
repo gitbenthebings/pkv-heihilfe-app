@@ -292,6 +292,44 @@ pub async fn serve_datei(
     Ok((StatusCode::OK, headers, data))
 }
 
+pub async fn bescheid_vorschlag(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<crate::services::bescheid_ocr::BescheidVorschlag>, AppError> {
+    let beleg = repositories::belege::get(&state.db, &id, &auth.mandant_id).await?;
+
+    let ocr_text = beleg.ocr_text.unwrap_or_default();
+    if ocr_text.is_empty() {
+        return Ok(Json(crate::services::bescheid_ocr::BescheidVorschlag {
+            bescheid_datum: None,
+            aktenzeichen: None,
+            erstattungsbetrag_gesamt: None,
+            positionen: vec![],
+        }));
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct Row { id: String, betrag: i64 }
+
+    let rows = sqlx::query_as::<_, Row>(
+        "SELECT r.id, r.betrag FROM rechnung r
+         JOIN rechnung_beleg br ON br.rechnung_id = r.id
+         WHERE br.beleg_id = ? AND r.mandant_id = ?",
+    )
+    .bind(&id)
+    .bind(&auth.mandant_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let refs: Vec<crate::services::bescheid_ocr::RechnungRef> = rows
+        .into_iter()
+        .map(|r| crate::services::bescheid_ocr::RechnungRef { id: r.id, betrag_cent: r.betrag })
+        .collect();
+
+    Ok(Json(crate::services::bescheid_ocr::parse(&ocr_text, &refs)))
+}
+
 pub async fn retrigger_ocr(
     State(state): State<AppState>,
     auth: AuthUser,

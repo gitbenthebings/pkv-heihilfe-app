@@ -35,6 +35,7 @@ export interface Einstellungen {
   gdrive_folder_id?: string
   n8n_webhook_url?: string
   n8n_rechnung_webhook_url?: string
+  last_backup_at?: string
 }
 
 export async function getEinstellungen(): Promise<Einstellungen> {

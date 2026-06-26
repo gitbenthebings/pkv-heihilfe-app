@@ -25,6 +25,7 @@ use db::Db;
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
+    pub db_path: PathBuf,
     pub jwt_secret: String,
     pub uploads_dir: PathBuf,
     pub exports_dir: PathBuf,
@@ -54,8 +55,11 @@ async fn main() -> anyhow::Result<()> {
 
     seed::bootstrap(&pool, &cfg).await?;
 
+    let db_path = PathBuf::from(cfg.database_url.trim_start_matches("sqlite:"));
+
     let state = AppState {
         db: pool,
+        db_path,
         jwt_secret: cfg.jwt_secret.clone(),
         uploads_dir: cfg.uploads_dir.clone(),
         exports_dir: cfg.exports_dir.clone(),
@@ -140,6 +144,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/logo", delete(handlers::logo::delete))
         // Export
         .route("/api/export", post(handlers::export::run))
+        // Backup
+        .route("/api/backup/download", get(handlers::backup::download))
+        .route("/api/backup/restore", post(handlers::backup::restore))
         // Beihilfe-Anträge
         .route("/api/beihilfe-antraege", get(handlers::beihilfe_antraege::list))
         .route("/api/beihilfe-antraege", post(handlers::beihilfe_antraege::create))
@@ -164,6 +171,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge", get(handlers::beihilfe_bescheide::list_anhaenge))
         .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid", get(handlers::beihilfe_bescheide::serve_anhang))
         .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid", delete(handlers::beihilfe_bescheide::delete_anhang))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid/ocr", post(handlers::beihilfe_bescheide::ocr_anhang))
+        .route("/api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid/vorschlag", get(handlers::beihilfe_bescheide::vorschlag_anhang))
         // Belege
         .route("/api/belege", get(handlers::belege::list))
         .route("/api/belege", post(handlers::belege::upload))
@@ -173,6 +182,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/belege/:id/datei", get(handlers::belege::serve_datei))
         .route("/api/belege/:id/thumbnail", get(handlers::belege::serve_thumbnail))
         .route("/api/belege/:id/ocr", post(handlers::belege::retrigger_ocr))
+        .route("/api/belege/:id/bescheid-vorschlag", get(handlers::belege::bescheid_vorschlag))
         // Belege ↔ Rechnungen
         .route("/api/rechnungen/:id/belege", get(handlers::belege::list_for_rechnung))
         .route("/api/rechnungen/:id/belege", post(handlers::belege::add_to_rechnung))

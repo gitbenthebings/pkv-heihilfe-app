@@ -6,6 +6,12 @@ use axum::{
 };
 use uuid::Uuid;
 
+#[derive(sqlx::FromRow)]
+struct RechnungRow {
+    id: String,
+    betrag: i64,
+}
+
 use crate::{
     auth::AuthUser,
     errors::AppError,
@@ -170,6 +176,37 @@ pub async fn upload_anhang(
         &state.db, &file_id, &auth.mandant_id, &bescheid_id, &dateiname, &rel_pfad, data.len() as i64,
     ).await?;
 
+    // OCR im Hintergrund starten
+    {
+        let db_clone = state.db.clone();
+        let path_clone = abs_pfad.clone();
+        let id_clone = file_id.clone();
+        let bid_clone = bescheid_id.clone();
+        let sem = state.ocr_semaphore.clone();
+        tokio::spawn(async move {
+            let _permit = sem.acquire().await;
+            match crate::services::ocr::extract_text(&path_clone).await {
+                Ok(text) => {
+                    let _ = repositories::bescheid_anhaenge::update_ocr(
+                        &db_clone, &id_clone, &bid_clone,
+                        crate::services::ocr::STATUS_DONE,
+                        if text.is_empty() { None } else { Some(text.as_str()) },
+                    ).await;
+                }
+                Err(status) => {
+                    let s = if status.starts_with(crate::services::ocr::STATUS_UNAVAILABLE) {
+                        crate::services::ocr::STATUS_UNAVAILABLE
+                    } else {
+                        crate::services::ocr::STATUS_FAILED
+                    };
+                    let _ = repositories::bescheid_anhaenge::update_ocr(
+                        &db_clone, &id_clone, &bid_clone, s, None,
+                    ).await;
+                }
+            }
+        });
+    }
+
     Ok((StatusCode::CREATED, Json(anhang)))
 }
 
@@ -220,4 +257,90 @@ pub async fn delete_anhang(
 
     repositories::bescheid_anhaenge::delete(&state.db, &anhang_id, &bescheid_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn ocr_anhang(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((_antrag_id, bescheid_id, anhang_id)): Path<(String, String, String)>,
+) -> Result<StatusCode, AppError> {
+    require_bescheid(&state, &bescheid_id, &auth.mandant_id).await?;
+    let anhang = repositories::bescheid_anhaenge::get_by_id(&state.db, &anhang_id, &bescheid_id).await?;
+
+    // Status zurücksetzen
+    sqlx::query("UPDATE bescheid_anhang SET ocr_status = NULL, ocr_text = NULL WHERE id = ? AND bescheid_id = ?")
+        .bind(&anhang_id)
+        .bind(&bescheid_id)
+        .execute(&state.db)
+        .await?;
+
+    let db_clone = state.db.clone();
+    let path_clone = state.uploads_dir.join(&anhang.pfad);
+    let id_clone = anhang_id.clone();
+    let bid_clone = bescheid_id.clone();
+    let sem = state.ocr_semaphore.clone();
+    tokio::spawn(async move {
+        let _permit = sem.acquire().await;
+        match crate::services::ocr::extract_text(&path_clone).await {
+            Ok(text) => {
+                let _ = repositories::bescheid_anhaenge::update_ocr(
+                    &db_clone, &id_clone, &bid_clone,
+                    crate::services::ocr::STATUS_DONE,
+                    if text.is_empty() { None } else { Some(text.as_str()) },
+                ).await;
+            }
+            Err(status) => {
+                let s = if status.starts_with(crate::services::ocr::STATUS_UNAVAILABLE) {
+                    crate::services::ocr::STATUS_UNAVAILABLE
+                } else {
+                    crate::services::ocr::STATUS_FAILED
+                };
+                let _ = repositories::bescheid_anhaenge::update_ocr(
+                    &db_clone, &id_clone, &bid_clone, s, None,
+                ).await;
+            }
+        }
+    });
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub async fn vorschlag_anhang(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((antrag_id, bescheid_id, anhang_id)): Path<(String, String, String)>,
+) -> Result<Json<services::bescheid_ocr::BescheidVorschlag>, AppError> {
+    require_bescheid(&state, &bescheid_id, &auth.mandant_id).await?;
+    let anhang = repositories::bescheid_anhaenge::get_by_id(&state.db, &anhang_id, &bescheid_id).await?;
+
+    let ocr_text = anhang.ocr_text.unwrap_or_default();
+    if ocr_text.is_empty() {
+        return Ok(Json(services::bescheid_ocr::BescheidVorschlag {
+            bescheid_datum: None,
+            aktenzeichen: None,
+            erstattungsbetrag_gesamt: None,
+            positionen: vec![],
+        }));
+    }
+
+    // Rechnungen dieses Antrags für Matching laden
+    let rows = sqlx::query_as::<_, RechnungRow>(
+        "SELECT r.id, r.betrag FROM rechnung r
+         JOIN beihilfe_antrag_rechnung ar ON ar.rechnung_id = r.id
+         WHERE ar.antrag_id = ?",
+    )
+    .bind(&antrag_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let refs: Vec<services::bescheid_ocr::RechnungRef> = rows
+        .into_iter()
+        .map(|r| services::bescheid_ocr::RechnungRef {
+            id: r.id,
+            betrag_cent: r.betrag,
+        })
+        .collect();
+
+    let vorschlag = services::bescheid_ocr::parse(&ocr_text, &refs);
+    Ok(Json(vorschlag))
 }

@@ -1,17 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getBescheidAnhaenge, uploadBescheidAnhang, deleteBescheidAnhang,
   fetchBescheidAnhangBlob, fetchBescheidAnhangFile,
+  triggerBescheidOcr, getBescheidVorschlag,
 } from '../api/bescheid_anhaenge'
 import { getConfig } from '../api/config'
 import { fileToGrayscalePdf, canvasesToPdf } from '../utils/imageToGrayscalePdf'
 import ScanEditor from './ScanEditor'
-import type { BescheidAnhang } from '../types'
+import type { BescheidAnhang, BescheidVorschlag } from '../types'
 
 interface Props {
   antragId: string
   bescheidId: string
+  onVorschlag?: (v: BescheidVorschlag) => void
 }
 
 function formatBytes(bytes: number): string {
@@ -27,12 +29,32 @@ function PdfIcon() {
   )
 }
 
-export default function BescheidAnhangUpload({ antragId, bescheidId }: Props) {
+function OcrBadge({ status, running }: { status?: string | null; running: boolean }) {
+  if (running) return (
+    <span style={{ fontSize: 10, color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+      <span style={{ display: 'inline-block', width: 10, height: 10, border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      OCR…
+    </span>
+  )
+  if (status === 'done') return <span style={{ fontSize: 10, color: 'var(--green)', flexShrink: 0 }}>✓ OCR</span>
+  if (status === 'failed') return <span style={{ fontSize: 10, color: 'var(--rose)', flexShrink: 0 }}>OCR fehlgeschlagen</span>
+  if (status === 'unavailable') return <span style={{ fontSize: 10, color: 'var(--amber)', flexShrink: 0 }}>Kein Tesseract</span>
+  return null
+}
+
+export default function BescheidAnhangUpload({ antragId, bescheidId, onVorschlag }: Props) {
   const qc = useQueryClient()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [sharingId, setSharingId] = useState<string | null>(null)
+  const [ocrTriggeringId, setOcrTriggeringId] = useState<string | null>(null)
+  const [vorschlagLoadingId, setVorschlagLoadingId] = useState<string | null>(null)
+
+  // IDs die gerade OCR laufen haben (upload oder manuell getriggert)
+  const [triggeredIds, setTriggeredIds] = useState<Set<string>>(new Set())
+  const [polling, setPolling] = useState(false)
+
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -49,17 +71,29 @@ export default function BescheidAnhangUpload({ antragId, bescheidId }: Props) {
   const { data: anhaenge = [], isLoading } = useQuery({
     queryKey,
     queryFn: () => getBescheidAnhaenge(antragId, bescheidId),
+    refetchInterval: polling ? 2000 : false,
   })
 
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => deleteBescheidAnhang(antragId, bescheidId, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey }),
-  })
+  // Polling stoppen sobald alle getriggerten Anhänge einen Status haben
+  useEffect(() => {
+    if (!polling || triggeredIds.size === 0) return
+    const triggered = anhaenge.filter(a => triggeredIds.has(a.id))
+    if (triggered.length > 0 && triggered.every(a => a.ocr_status != null)) {
+      setPolling(false)
+      setTriggeredIds(new Set())
+    }
+  }, [anhaenge, polling, triggeredIds])
+
+  function markTriggered(id: string) {
+    setTriggeredIds(prev => { const s = new Set(prev); s.add(id); return s })
+    setPolling(true)
+  }
 
   const uploadFile = async (file: File, index: number) => {
     const nr = String(index).padStart(2, '0')
     const filename = `bescheid_${nr}.pdf`
-    await uploadBescheidAnhang(antragId, bescheidId, new File([file], filename, { type: 'application/pdf' }))
+    const anhang = await uploadBescheidAnhang(antragId, bescheidId, new File([file], filename, { type: 'application/pdf' }))
+    markTriggered(anhang.id)
   }
 
   const uploadFiles = async (files: File[]) => {
@@ -159,6 +193,31 @@ export default function BescheidAnhangUpload({ antragId, bescheidId }: Props) {
     }
   }
 
+  const handleOcrTrigger = async (a: BescheidAnhang) => {
+    setOcrTriggeringId(a.id)
+    try {
+      await triggerBescheidOcr(antragId, bescheidId, a.id)
+      markTriggered(a.id)
+      qc.invalidateQueries({ queryKey })
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'OCR konnte nicht gestartet werden')
+    } finally {
+      setOcrTriggeringId(null)
+    }
+  }
+
+  const handleVorschlag = async (a: BescheidAnhang) => {
+    setVorschlagLoadingId(a.id)
+    try {
+      const vorschlag = await getBescheidVorschlag(antragId, bescheidId, a.id)
+      onVorschlag?.(vorschlag)
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Vorschlag konnte nicht geladen werden')
+    } finally {
+      setVorschlagLoadingId(null)
+    }
+  }
+
   const btnStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
     fontSize: 11, color: 'var(--text-muted)', background: 'var(--surface-alt)',
@@ -207,45 +266,75 @@ export default function BescheidAnhangUpload({ antragId, bescheidId }: Props) {
         {isLoading && <p style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Lade…</p>}
         {anhaenge.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {anhaenge.map((a: BescheidAnhang) => (
-              <div key={a.id} style={{
-                display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
-                background: 'var(--surface-alt)', border: '1px solid var(--border)',
-                borderRadius: 5, padding: '5px 8px',
-              }}>
-                <PdfIcon />
-                <button
-                  onClick={() => handleOpen(a)}
-                  disabled={openingId === a.id}
-                  style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: openingId === a.id ? 0.5 : 1 }}
-                  title={a.dateiname}
-                >
-                  {openingId === a.id ? 'Öffne…' : a.dateiname}
-                </button>
-                <span style={{ color: 'var(--text-subtle)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatBytes(a.groesse)}</span>
-                <button
-                  onClick={() => handleShare(a)}
-                  disabled={sharingId === a.id}
-                  style={{ color: 'var(--text-subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, opacity: sharingId === a.id ? 0.5 : 1, display: 'flex' }}
-                  title="Teilen / Herunterladen"
-                >
-                  {sharingId === a.id ? (
-                    <span style={{ display: 'inline-block', width: 14, height: 14, border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                  ) : (
-                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                    </svg>
+            {anhaenge.map((a: BescheidAnhang) => {
+              const isRunning = triggeredIds.has(a.id) && a.ocr_status == null
+              const canStart = !isRunning && (a.ocr_status == null || a.ocr_status === 'failed' || a.ocr_status === 'unavailable')
+              return (
+                <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                    background: 'var(--surface-alt)', border: '1px solid var(--border)',
+                    borderRadius: 5, padding: '5px 8px',
+                  }}>
+                    <PdfIcon />
+                    <button
+                      onClick={() => handleOpen(a)}
+                      disabled={openingId === a.id}
+                      style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: openingId === a.id ? 0.5 : 1 }}
+                      title={a.dateiname}
+                    >
+                      {openingId === a.id ? 'Öffne…' : a.dateiname}
+                    </button>
+                    <span style={{ color: 'var(--text-subtle)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatBytes(a.groesse)}</span>
+                    <OcrBadge status={a.ocr_status} running={isRunning} />
+                    <button
+                      onClick={() => handleShare(a)}
+                      disabled={sharingId === a.id}
+                      style={{ color: 'var(--text-subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, opacity: sharingId === a.id ? 0.5 : 1, display: 'flex' }}
+                      title="Teilen / Herunterladen"
+                    >
+                      {sharingId === a.id ? (
+                        <span style={{ display: 'inline-block', width: 14, height: 14, border: '1.5px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                      ) : (
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => { if (confirm(`"${a.dateiname}" wirklich löschen?`)) deleteBescheidAnhang(antragId, bescheidId, a.id).then(() => qc.invalidateQueries({ queryKey })) }}
+                      style={{ color: 'var(--text-subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, fontSize: 15, lineHeight: 1 }}
+                      title="Löschen"
+                    >×</button>
+                  </div>
+
+                  {/* OCR-Aktionszeile */}
+                  {(canStart || a.ocr_status === 'done') && (
+                    <div style={{ display: 'flex', gap: 4, paddingLeft: 2 }}>
+                      {canStart && (
+                        <button
+                          onClick={() => handleOcrTrigger(a)}
+                          disabled={ocrTriggeringId === a.id}
+                          style={{ fontSize: 10, padding: '2px 7px', color: 'var(--text-muted)', background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', opacity: ocrTriggeringId === a.id ? 0.5 : 1 }}
+                        >
+                          {ocrTriggeringId === a.id ? 'Startet…' : 'OCR starten'}
+                        </button>
+                      )}
+                      {a.ocr_status === 'done' && onVorschlag && (
+                        <button
+                          onClick={() => handleVorschlag(a)}
+                          disabled={vorschlagLoadingId === a.id}
+                          style={{ fontSize: 10, padding: '2px 7px', color: '#fff', background: 'var(--primary)', border: 'none', borderRadius: 4, cursor: 'pointer', opacity: vorschlagLoadingId === a.id ? 0.6 : 1 }}
+                        >
+                          {vorschlagLoadingId === a.id ? 'Lade…' : 'Positionen vorschlagen'}
+                        </button>
+                      )}
+                    </div>
                   )}
-                </button>
-                <button
-                  onClick={() => { if (confirm(`"${a.dateiname}" wirklich löschen?`)) deleteMut.mutate(a.id) }}
-                  disabled={deleteMut.isPending}
-                  style={{ color: 'var(--text-subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, fontSize: 15, lineHeight: 1, opacity: deleteMut.isPending ? 0.5 : 1 }}
-                  title="Löschen"
-                >×</button>
-              </div>
-            ))}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

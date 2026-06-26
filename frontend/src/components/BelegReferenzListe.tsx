@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getBelegeForRechnung, addBelegToRechnung, removeBelegFromRechnung,
   getBelegeForAntrag, addBelegToAntrag, removeBelegFromAntrag,
@@ -21,6 +21,7 @@ interface AntragProps  {
   beihilfestelleId?: string | null
   pkvId?: string | null
   thumbnailView?: boolean
+  linkedRechnungen?: { id: string; label: string }[]
 }
 type Props = RechnungProps | AntragProps
 
@@ -45,11 +46,17 @@ function BelegThumbCard({
   onOpen,
   onRemove,
   opening,
+  onBescheid,
+  bescheidLabel,
+  bescheidActive,
 }: {
   beleg: Beleg
   onOpen: () => void
-  onRemove: () => void
+  onRemove?: () => void
   opening: boolean
+  onBescheid?: () => void
+  bescheidLabel?: string
+  bescheidActive?: boolean
 }) {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
 
@@ -89,7 +96,7 @@ function BelegThumbCard({
       >
         {thumbUrl ? (
           <img src={thumbUrl} alt={displayName}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
         ) : (
           <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"
             style={{ color: 'var(--rose)', opacity: 0.6 }}>
@@ -102,16 +109,18 @@ function BelegThumbCard({
           </div>
         )}
         {/* Entfernen-Button oben rechts */}
-        <button
-          onClick={e => { e.stopPropagation(); onRemove() }}
-          style={{
-            position: 'absolute', top: 4, right: 4,
-            background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: 4,
-            color: '#fff', fontSize: 13, lineHeight: 1, padding: '2px 5px',
-            cursor: 'pointer',
-          }}
-          title="Verknüpfung entfernen"
-        >×</button>
+        {onRemove && (
+          <button
+            onClick={e => { e.stopPropagation(); onRemove() }}
+            style={{
+              position: 'absolute', top: 4, right: 4,
+              background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: 4,
+              color: '#fff', fontSize: 13, lineHeight: 1, padding: '2px 5px',
+              cursor: 'pointer',
+            }}
+            title="Verknüpfung entfernen"
+          >×</button>
+        )}
       </div>
 
       {/* Info */}
@@ -131,6 +140,18 @@ function BelegThumbCard({
           fontSize: 11, fontWeight: 500, color: 'var(--text)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }} title={displayName}>{displayName}</span>
+        {onBescheid && (
+          <button
+            onClick={e => { e.stopPropagation(); onBescheid() }}
+            style={{
+              fontSize: 9, padding: '2px 6px', marginTop: 1, alignSelf: 'flex-start',
+              background: bescheidActive ? 'var(--primary)' : 'none',
+              color: bescheidActive ? '#fff' : 'var(--primary)',
+              border: '1px solid var(--primary)', borderRadius: 4, cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >→ {bescheidLabel}</button>
+        )}
       </div>
     </div>
   )
@@ -263,6 +284,7 @@ export default function BelegReferenzListe(props: Props) {
   const antragTyp = props.mode === 'antrag' ? props.antragTyp : undefined
   const beihilfestelleId = props.mode === 'antrag' ? props.beihilfestelleId : undefined
   const pkvId = props.mode === 'antrag' ? props.pkvId : undefined
+  const linkedRechnungen = props.mode === 'antrag' ? (props.linkedRechnungen ?? []) : []
   const thumbnailView = props.thumbnailView ?? false
 
   const [showPicker, setShowPicker] = useState(false)
@@ -321,32 +343,67 @@ export default function BelegReferenzListe(props: Props) {
 
   const bescheidBelegInView = belege.find(b => b.id === bescheidFromBelegId)
 
+  // ── Belege der mit dem Antrag verknüpften Rechnungen (read-only, gruppiert) ──
+  const rechnungBelegeResults = useQueries({
+    queries: linkedRechnungen.map(lr => ({
+      queryKey: ['belege', 'rechnung', lr.id],
+      queryFn: () => getBelegeForRechnung(lr.id),
+      staleTime: 30_000,
+    })),
+  })
+  const ownBelegIds = new Set(belege.map(b => b.id))
+  const rechnungBelegGruppen = linkedRechnungen
+    .map((lr, i) => ({
+      ...lr,
+      belege: (rechnungBelegeResults[i]?.data ?? []).filter(b => !ownBelegIds.has(b.id)),
+    }))
+    .filter(g => g.belege.length > 0)
+
+  const useCardLayout = thumbnailView || props.mode === 'antrag'
+  const bescheidLabel = antragTyp === 'pkv' ? 'Abrechnung' : 'Bescheid'
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {isLoading && <p style={{ fontSize: 11, color: 'var(--text-subtle)', margin: 0 }}>Lade…</p>}
 
-      {/* ── Thumbnail-Raster (Slider-Ansicht) ── */}
-      {thumbnailView ? (
+      {/* ── Kartenraster (Slider- / Antrag-Ansicht) ── */}
+      {useCardLayout ? (
         belege.length > 0 && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: 10,
-            marginBottom: 4,
-          }}>
-            {belege.map(b => (
-              <BelegThumbCard
-                key={b.id}
-                beleg={b}
-                onOpen={() => handleOpen(b)}
-                onRemove={() => removeMut.mutate(b.id)}
-                opening={openingId === b.id}
+          <>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: 10,
+              marginBottom: 4,
+            }}>
+              {belege.map(b => (
+                <BelegThumbCard
+                  key={b.id}
+                  beleg={b}
+                  onOpen={() => handleOpen(b)}
+                  onRemove={() => removeMut.mutate(b.id)}
+                  opening={openingId === b.id}
+                  onBescheid={props.mode === 'antrag' && isBescheidTyp(b.typ)
+                    ? () => setBescheidFromBelegId(bescheidFromBelegId === b.id ? null : b.id)
+                    : undefined}
+                  bescheidLabel={bescheidLabel}
+                  bescheidActive={bescheidFromBelegId === b.id}
+                />
+              ))}
+            </div>
+            {bescheidBelegInView && props.mode === 'antrag' && (
+              <BescheidAusBeleg
+                antragId={props.id}
+                antragTyp={antragTyp}
+                beleg={bescheidBelegInView}
+                onDone={() => setBescheidFromBelegId(null)}
+                onCancel={() => setBescheidFromBelegId(null)}
               />
-            ))}
-          </div>
+            )}
+          </>
         )
       ) : (
-        /* ── Listen-Ansicht (Tabelle / Antrag-Kontext) ── */
+        /* ── Listen-Ansicht (Tabelle) ── */
         belege.map(b => (
           <div key={b.id} style={rowStyle}>
             {/* Main row */}
@@ -362,23 +419,6 @@ export default function BelegReferenzListe(props: Props) {
                 {openingId === b.id ? 'Öffne…' : (b.bezeichnung || b.dateiname)}
               </button>
 
-              {/* Bescheid erstellen – nur im Antrag-Kontext bei Bescheid-Typen */}
-              {props.mode === 'antrag' && isBescheidTyp(b.typ) && (
-                <button
-                  onClick={() => setBescheidFromBelegId(bescheidFromBelegId === b.id ? null : b.id)}
-                  style={{
-                    fontSize: 10, padding: '2px 7px', flexShrink: 0,
-                    background: bescheidFromBelegId === b.id ? 'var(--primary)' : 'none',
-                    color: bescheidFromBelegId === b.id ? '#fff' : 'var(--primary)',
-                    border: '1px solid var(--primary)', borderRadius: 4, cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={`${antragTyp === 'pkv' ? 'Abrechnung' : 'Bescheid'} aus diesem Beleg erstellen`}
-                >
-                  → {antragTyp === 'pkv' ? 'Abrechnung' : 'Bescheid'}
-                </button>
-              )}
-
               <button onClick={() => removeMut.mutate(b.id)} disabled={removeMut.isPending}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', fontSize: 15, lineHeight: 1, flexShrink: 0, opacity: removeMut.isPending ? 0.5 : 1 }}
                 title="Verknüpfung entfernen">×</button>
@@ -390,19 +430,6 @@ export default function BelegReferenzListe(props: Props) {
               {b.notiz && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{b.notiz}</span>}
               <span style={{ marginLeft: 'auto' }}>{formatBytes(b.groesse)}</span>
             </div>
-
-            {/* Inline Bescheid-Formular */}
-            {bescheidFromBelegId === b.id && bescheidBelegInView && props.mode === 'antrag' && (
-              <div style={{ marginTop: 4 }}>
-                <BescheidAusBeleg
-                  antragId={props.id}
-                  antragTyp={antragTyp}
-                  beleg={bescheidBelegInView}
-                  onDone={() => setBescheidFromBelegId(null)}
-                  onCancel={() => setBescheidFromBelegId(null)}
-                />
-              </div>
-            )}
           </div>
         ))
       )}
@@ -438,6 +465,40 @@ export default function BelegReferenzListe(props: Props) {
           onSelect={b => { addMut.mutate(b.id); setShowPicker(false) }}
           onCancel={() => setShowPicker(false)}
         />
+      )}
+
+      {/* ── Belege der verknüpften Rechnungen (Liste, gruppiert nach Rechnung) ── */}
+      {rechnungBelegGruppen.length > 0 && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Belege der verknüpften Rechnungen
+          </div>
+          {rechnungBelegGruppen.map(gruppe => (
+            <div key={gruppe.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>{gruppe.label}</div>
+              {gruppe.belege.map(b => (
+                <div key={b.id} style={rowStyle}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"
+                      style={{ color: 'var(--rose)', flexShrink: 0 }}>
+                      <path d="M20 2H8a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-1 14H9V4h10v12zM4 6H2v14a2 2 0 002 2h14v-2H4V6z" />
+                    </svg>
+                    <button onClick={() => handleOpen(b)} disabled={openingId === b.id}
+                      style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--primary)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: openingId === b.id ? 0.5 : 1 }}
+                      title={b.bezeichnung || b.dateiname}>
+                      {openingId === b.id ? 'Öffne…' : (b.bezeichnung || b.dateiname)}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, fontSize: 10, color: 'var(--text-subtle)', flexWrap: 'wrap', paddingLeft: 21 }}>
+                    {b.typ && <span>{TYP_LABELS[b.typ]}</span>}
+                    {b.notiz && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{b.notiz}</span>}
+                    <span style={{ marginLeft: 'auto' }}>{formatBytes(b.groesse)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

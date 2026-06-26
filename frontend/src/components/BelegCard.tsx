@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { deleteBeleg, fetchBelegThumbnailBlob } from '../api/belege'
+import { deleteBeleg, fetchBelegBlob, fetchBelegThumbnailBlob } from '../api/belege'
 import { TYP_LABELS } from './BelegeUpload'
 import { useToast } from '../context/ToastContext'
 import type { Beleg, BelegTyp } from '../types'
@@ -61,6 +61,7 @@ export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: 
   const [pendingDelete, setPendingDelete] = useState(false)
   const [thumbUrl, setThumbUrl] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
+  const [openingPdf, setOpeningPdf] = useState(false)
 
   const displayName = beleg.bezeichnung || beleg.dateiname
   const tone = beleg.typ ? TYPE_TONE[beleg.typ] : 'purple'
@@ -102,12 +103,28 @@ export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: 
 
   const ext = beleg.dateiname.split('.').pop()?.toUpperCase() ?? 'PDF'
 
+  const handleOpenPdf = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpeningPdf(true)
+    try {
+      const blobUrl = await fetchBelegBlob(beleg.id)
+      const win = window.open(blobUrl, '_blank')
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
+      if (!win) showToast('Popup-Blocker aktiv')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'PDF konnte nicht geöffnet werden')
+    } finally {
+      setOpeningPdf(false)
+    }
+  }
+
   return (
     <div
       onClick={() => onOpenDetail(beleg.id)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        position: 'relative',
         background: 'var(--surface)',
         borderRadius: 12,
         overflow: 'hidden',
@@ -117,8 +134,9 @@ export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: 
         pointerEvents: pendingDelete ? 'none' : undefined,
         cursor: 'pointer',
         border: selected ? '2px solid var(--primary)' : '1px solid var(--border)',
-        boxShadow: hovered ? '0 10px 28px rgba(0,0,0,0.2)' : 'none',
-        transform: hovered ? 'translateY(-2px)' : 'none',
+        boxShadow: hovered ? '0 16px 36px rgba(0,0,0,0.24)' : 'none',
+        transform: hovered ? 'scale(1.06) translateY(-2px)' : 'none',
+        zIndex: hovered ? 5 : 1,
         transition: 'transform 0.14s, box-shadow 0.14s, border-color 0.14s',
       }}
     >
@@ -127,7 +145,7 @@ export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: 
         {thumbUrl ? (
           <div style={{ height: 148, background: 'var(--surface-alt)', overflow: 'hidden' }}>
             <img src={thumbUrl} alt={displayName}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
           </div>
         ) : (
           <DocThumb typ={beleg.typ} height={148} />
@@ -162,7 +180,7 @@ export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: 
             <div style={{
               position: 'absolute', inset: 0,
               background: 'var(--overlay)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8,
               animation: 'overlay-in 0.15s ease',
             }}>
               <span style={{
@@ -171,6 +189,19 @@ export default function BelegCard({ beleg, selected, onOpenDetail, onDeleted }: 
                 padding: '8px 16px', borderRadius: 20,
                 boxShadow: '0 4px 14px rgba(0,0,0,0.3)',
               }}>✎ Öffnen & bearbeiten</span>
+              <button
+                onClick={handleOpenPdf}
+                disabled={openingPdf}
+                style={{
+                  background: 'var(--surface)', color: 'var(--text)',
+                  fontSize: 11, fontWeight: 600,
+                  padding: '6px 14px', borderRadius: 20,
+                  border: '1px solid var(--border-hi)',
+                  cursor: openingPdf ? 'default' : 'pointer',
+                  opacity: openingPdf ? 0.6 : 1,
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+                }}
+              >{openingPdf ? 'Öffne…' : '↗ PDF öffnen'}</button>
             </div>
             <button
               onClick={handleDelete}

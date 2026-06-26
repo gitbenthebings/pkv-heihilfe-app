@@ -24,3 +24,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls", "json"] }
+regex = "1"
+zip = "2"
+walkdir = "2"

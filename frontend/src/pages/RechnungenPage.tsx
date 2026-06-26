@@ -7,11 +7,13 @@ import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
 import { getConfig } from '../api/config'
 import { exportRechnungen } from '../api/export'
+import { getAntraege, addRechnung } from '../api/beihilfe_antraege'
 import RechnungenTable from '../components/RechnungenTable'
 import PersonFilter from '../components/PersonFilter'
 import BulkActionBar from '../components/BulkActionBar'
 import RechnungForm from '../components/RechnungForm'
 import RechnungDetailSlider from '../components/RechnungDetailSlider'
+import { useToast } from '../context/ToastContext'
 import type { BulkAction, CreateRechnung, Rechnung } from '../types'
 import type { ExportProvider, ExportResult } from '../api/export'
 
@@ -21,6 +23,7 @@ export default function RechnungenPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { jahr } = useJahr()
+  const { showToast } = useToast()
   const [selectedPersonId, setSelectedPersonId] = useState<string | undefined>()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const kopieVonState = (location.state as { kopieVon?: Rechnung } | null)?.kopieVon ?? null
@@ -54,6 +57,8 @@ export default function RechnungenPage() {
   const { data: personen = [] } = useQuery({ queryKey: ['personen'], queryFn: getPersonen })
   const { data: correspondents = [] } = useQuery({ queryKey: ['correspondents'], queryFn: getCorrespondents })
   const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig, staleTime: Infinity })
+  const { data: alleAntraege = [] } = useQuery({ queryKey: ['antraege'], queryFn: () => getAntraege() })
+  const aktiveAntraege = alleAntraege.filter(a => a.status !== 'archiviert')
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['rechnungen'] })
@@ -78,6 +83,22 @@ export default function RechnungenPage() {
     onSuccess: () => { setSelectedIds(new Set()); invalidate() },
   })
 
+  const antragAddMutation = useMutation({
+    mutationFn: async ({ antragId, ids }: { antragId: string; ids: string[] }) => {
+      const results = await Promise.allSettled(ids.map(id => addRechnung(antragId, id)))
+      const failed = results.filter(r => r.status === 'rejected').length
+      if (failed > 0) throw new Error(`${failed} Rechnung${failed !== 1 ? 'en' : ''} konnten nicht hinzugefügt werden`)
+      return ids.length - failed
+    },
+    onSuccess: (added) => {
+      showToast(`${added} Rechnung${added !== 1 ? 'en' : ''} zum Antrag hinzugefügt`)
+      setSelectedIds(new Set())
+      qc.invalidateQueries({ queryKey: ['antragRechnungen'] })
+      qc.invalidateQueries({ queryKey: ['antraege'] })
+    },
+    onError: (e: Error) => showToast(e.message),
+  })
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const s = new Set(prev)
@@ -96,6 +117,10 @@ export default function RechnungenPage() {
 
   const handleBulkAction = (action: BulkAction) => {
     bulkMutation.mutate({ ids: Array.from(selectedIds), action })
+  }
+
+  const handleAntragHinzufuegen = (antragId: string) => {
+    antragAddMutation.mutate({ antragId, ids: Array.from(selectedIds) })
   }
 
   const handleExport = async (provider: ExportProvider) => {
@@ -252,6 +277,9 @@ export default function RechnungenPage() {
         exporting={exporting}
         archivModus={archivModus}
         gdriveConfigured={config?.gdrive_configured}
+        antraege={aktiveAntraege}
+        onAntragHinzufuegen={handleAntragHinzufuegen}
+        antragAddPending={antragAddMutation.isPending}
       />
     </div>
   )

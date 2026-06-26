@@ -13,6 +13,7 @@ pub struct EinstellungenResponse {
     pub gdrive_folder_id: Option<String>,
     pub n8n_webhook_url: Option<String>,
     pub n8n_rechnung_webhook_url: Option<String>,
+    pub last_backup_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +64,7 @@ pub async fn get(
         gdrive_folder_id: map.get("gdrive_folder_id").cloned(),
         n8n_webhook_url: map.get("n8n_webhook_url").cloned(),
         n8n_rechnung_webhook_url: map.get("n8n_rechnung_webhook_url").cloned(),
+        last_backup_at: map.get("last_backup_at").cloned(),
     }))
 }
 

@@ -9,4 +9,7 @@ pub struct BescheidAnhang {
     pub hochgeladen_am: String,
     #[serde(skip)]
     pub pfad: String,
+    pub ocr_status: Option<String>,
+    #[serde(skip)]
+    pub ocr_text: Option<String>,
 }

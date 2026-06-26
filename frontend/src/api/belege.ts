@@ -1,4 +1,4 @@
-import type { Beleg, BelegTyp, UpdateBeleg } from '../types'
+import type { Beleg, BelegTyp, UpdateBeleg, BescheidVorschlag } from '../types'
 
 const BASE = '/api'
 
@@ -87,6 +87,11 @@ export async function deleteBeleg(id: string): Promise<void> {
 
 export async function retriggerOcr(id: string): Promise<void> {
   await authFetch(`/belege/${id}/ocr`, { method: 'POST' })
+}
+
+export async function getBelegBescheidVorschlag(id: string): Promise<BescheidVorschlag> {
+  const res = await authFetch(`/belege/${id}/bescheid-vorschlag`)
+  return res.json()
 }
 
 export function getBelegDateiUrl(id: string): string {

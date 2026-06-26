@@ -26,8 +26,6 @@ const TYP_LABEL: Record<string, string> = {
 interface ZeileStats {
   personId: string
   personName: string
-  typ: string
-  typLabel: string
   count: number
   betrag: number
   bhErwartet: number
@@ -56,15 +54,12 @@ function berechne(
   for (const r of rechnungen) {
     const person = personenById.get(r.person_id)
     const personName = person?.name ?? r.person_id
-    const typLabel = TYP_LABEL[r.typ] ?? r.typ
-    const key = `${r.person_id}::${r.typ}`
+    const key = r.person_id
 
     if (!zeilenMap.has(key)) {
       zeilenMap.set(key, {
         personId: r.person_id,
         personName,
-        typ: r.typ,
-        typLabel,
         count: 0,
         betrag: 0,
         bhErwartet: 0,
@@ -90,7 +85,7 @@ function berechne(
 
   // Eigenanteil pro Zeile (nur vollständig abgerechnete Rechnungen)
   for (const r of rechnungen) {
-    const key = `${r.person_id}::${r.typ}`
+    const key = r.person_id
     const person = personenById.get(r.person_id)
     const hatBH = person?.beihilfestelle_id != null
     const vollstaendig = r.pkv_erstattet_betrag != null && (!hatBH || r.beihilfe_erstattet_betrag != null)
@@ -102,7 +97,7 @@ function berechne(
   }
 
   const zeilen = [...zeilenMap.values()].sort((a, b) =>
-    a.personName.localeCompare(b.personName) || a.typLabel.localeCompare(b.typLabel)
+    a.personName.localeCompare(b.personName)
   )
 
   const gesamt: Gesamt = {
@@ -276,14 +271,14 @@ export default function AuswertungPage() {
           {/* Tabelle nach Person & Typ */}
           <section>
             <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-              Aufschlüsselung nach Person und Typ
+              Aufschlüsselung nach Person
             </h2>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--surface-alt)', borderBottom: '1px solid var(--border)' }}>
-                      {['Person', 'Typ', 'Anz.', 'Betrag', 'BH erw.', 'BH tats.', 'PKV erw.', 'PKV tats.', 'Eigenanteil'].map(h => (
+                      {['Person', 'Anz.', 'Betrag', 'BH erw.', 'BH tats.', 'PKV erw.', 'PKV tats.', 'Eigenanteil'].map(h => (
                         <th key={h} style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
                           className="first:text-left second:text-left">
                           {h}
@@ -293,11 +288,10 @@ export default function AuswertungPage() {
                   </thead>
                   <tbody>
                     {zeilen.map((z, i) => (
-                      <tr key={`${z.personId}-${z.typ}`}
+                      <tr key={z.personId}
                         style={{ borderBottom: i < zeilen.length - 1 ? '1px solid var(--border)' : 'none' }}
                       >
                         <td style={{ padding: '8px 12px', fontWeight: 500, color: 'var(--text)' }}>{z.personName}</td>
-                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{z.typLabel}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>{z.count}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>{euro(z.betrag)}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{euro(z.bhErwartet)}</td>
@@ -316,7 +310,7 @@ export default function AuswertungPage() {
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface-alt)' }}>
-                      <td colSpan={3} style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text)' }}>Gesamt</td>
+                      <td colSpan={2} style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text)' }}>Gesamt</td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>{euro(gesamt.betrag)}</td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{euro(gesamt.bhErwartet)}</td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>{euro(gesamt.bhTatsaechlich)}</td>

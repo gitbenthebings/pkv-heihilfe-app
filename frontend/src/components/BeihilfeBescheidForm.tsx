@@ -7,10 +7,11 @@ import {
 } from '../api/beihilfe_bescheide'
 import { getConfig } from '../api/config'
 import { verarbeiteBescheidPDF, type RechnungMapping, type N8nExtrahiertePosition } from '../api/n8n'
+import BescheidAnhangUpload from './BescheidAnhangUpload'
 import type {
   BeihilfeBescheid, BescheidPosition, Rechnung, Person,
   CreateBeihilfeBescheid, UpdateBeihilfeBescheid, UpdateBescheidPosition,
-  AntragRechnung,
+  AntragRechnung, BescheidVorschlag, BescheidVorschlagPosition,
 } from '../types'
 
 // bescheid/position values are in Cent
@@ -109,6 +110,8 @@ interface KarteProps {
 function BescheidKarte({ antragId, b, antragRechnungen, rechnungMap, personMap, onDelete, deleting, isOverridden, onOpenRechnung }: KarteProps) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(!isOverridden)
+  const [ocrOffene, setOcrOffene] = useState<BescheidVorschlagPosition[]>([])
+  const [vorschlagMsg, setVorschlagMsg] = useState<string | null>(null)
 
   const { data: pos = [] } = useQuery({
     queryKey: ['positionen', b.id],
@@ -168,6 +171,39 @@ function BescheidKarte({ antragId, b, antragRechnungen, rechnungMap, personMap, 
   const savePos = (p: BescheidPosition, field: keyof UpdateBescheidPosition, raw: string) => {
     const parsed = parseFloat(raw)
     updatePosMut.mutate({ posId: p.id, data: { [field]: isNaN(parsed) ? null : parsed } })
+  }
+
+  const handleVorschlag = async (vorschlag: BescheidVorschlag) => {
+    // Meta-Felder übernehmen
+    const upd: UpdateBeihilfeBescheid = {}
+    if (vorschlag.bescheid_datum) upd.bescheid_datum = vorschlag.bescheid_datum
+    if (vorschlag.aktenzeichen) upd.aktenzeichen = vorschlag.aktenzeichen
+    if (vorschlag.erstattungsbetrag_gesamt != null) upd.erstattungsbetrag_gesamt = vorschlag.erstattungsbetrag_gesamt
+    if (Object.keys(upd).length > 0) await updateBescheidMut.mutateAsync(upd)
+
+    // Positionen: nur gematchte, noch nicht vorhandene anlegen
+    const existing = new Set(pos.map(p => p.rechnung_id))
+    const matched = vorschlag.positionen.filter(p => p.rechnung_id && !existing.has(p.rechnung_id))
+    const unmatched = vorschlag.positionen.filter(p => !p.rechnung_id)
+
+    for (const p of matched) {
+      await createPosition(antragId, b.id, {
+        rechnung_id: p.rechnung_id!,
+        tatsaechliche_kosten: p.tatsaechliche_kosten ?? undefined,
+        anerkannt_betrag: p.anerkannt_betrag ?? undefined,
+        abgelehnt_betrag: p.abgelehnt_betrag ?? undefined,
+      })
+    }
+
+    invalidatePos()
+    setOcrOffene(unmatched)
+    setVorschlagMsg(
+      matched.length > 0
+        ? `${matched.length} Position(en) übernommen.${unmatched.length > 0 ? ` ${unmatched.length} konnte(n) nicht zugeordnet werden.` : ''}`
+        : unmatched.length > 0
+        ? `${unmatched.length} Position(en) ohne Rechnungszuordnung — bitte manuell erfassen.`
+        : 'Keine passenden Positionen gefunden.'
+    )
   }
 
   return (
@@ -367,8 +403,50 @@ function BescheidKarte({ antragId, b, antragRechnungen, rechnungMap, personMap, 
             </select>
           )}
 
+          {/* ── Anhänge & OCR ── */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', marginBottom: 8 }}>ANHÄNGE</div>
+            <BescheidAnhangUpload
+              antragId={antragId}
+              bescheidId={b.id}
+              onVorschlag={handleVorschlag}
+            />
+          </div>
+
+          {/* OCR Vorschlag Ergebnis */}
+          {vorschlagMsg && (
+            <div style={{
+              fontSize: 11, padding: '6px 10px', borderRadius: 6, marginTop: 4,
+              background: 'var(--primary-dim)', color: 'var(--primary)',
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8,
+            }}>
+              <span>{vorschlagMsg}</span>
+              <button onClick={() => { setVorschlagMsg(null); setOcrOffene([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 13, lineHeight: 1, flexShrink: 0 }}>✕</button>
+            </div>
+          )}
+          {ocrOffene.length > 0 && (
+            <div style={{
+              background: 'var(--amber-dim)', border: '1px solid rgba(232,160,48,.3)',
+              borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)' }}>
+                OCR — {ocrOffene.length} Position(en) ohne Rechnung
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
+                Diese Beträge wurden erkannt, konnten aber keiner Rechnung zugeordnet werden. Bitte oben manuell zuweisen.
+              </p>
+              {ocrOffene.map((p, i) => (
+                <div key={i} style={{ background: 'var(--surface)', borderRadius: 6, padding: '5px 10px', fontSize: 11, display: 'flex', gap: 10, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
+                  {p.tatsaechliche_kosten != null && <span style={{ color: 'var(--text-muted)' }}>Kosten: {p.tatsaechliche_kosten.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</span>}
+                  {p.anerkannt_betrag != null && <span style={{ color: 'var(--green)', fontWeight: 600 }}>BH: {p.anerkannt_betrag.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</span>}
+                  {p.abgelehnt_betrag != null && p.abgelehnt_betrag > 0 && <span style={{ color: 'var(--rose)' }}>✗ {p.abgelehnt_betrag.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Footer: delete */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
             <button
               onClick={() => confirm('Bescheid löschen?') && onDelete(b.id)}
               disabled={deleting}

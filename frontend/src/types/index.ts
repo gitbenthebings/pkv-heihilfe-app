@@ -250,6 +250,21 @@ export interface BescheidAnhang {
   dateiname: string
   groesse: number
   hochgeladen_am: string
+  ocr_status?: string | null
+}
+
+export interface BescheidVorschlagPosition {
+  rechnung_id: string | null
+  tatsaechliche_kosten: number | null // Euro
+  anerkannt_betrag: number | null     // Euro
+  abgelehnt_betrag: number | null     // Euro
+}
+
+export interface BescheidVorschlag {
+  bescheid_datum: string | null
+  aktenzeichen: string | null
+  erstattungsbetrag_gesamt: number | null // Euro
+  positionen: BescheidVorschlagPosition[]
 }
 
 export type BelegTyp = 'rechnung' | 'erstbescheid' | 'widerspruchsbescheid' | 'rezept' | 'ueberweisung' | 'sonstiges'

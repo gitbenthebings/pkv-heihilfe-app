@@ -28,6 +28,13 @@ function isCompatible(beleg: Beleg, beihilfestelleId?: string | null, pkvId?: st
   return true
 }
 
+// Rechnung/Rezept gehören inhaltlich zu genau einer Rechnung — bereits anderswo
+// verknüpfte Exemplare dieser Typen im Picker auszublenden vermeidet versehentliche
+// Mehrfachverknüpfung. Bescheide etc. dürfen bewusst mehrere Rechnungen abdecken.
+function isAlreadyLinkedElsewhere(beleg: Beleg): boolean {
+  return (beleg.typ === 'rechnung' || beleg.typ === 'rezept') && beleg.linked_rechnungen.length > 0
+}
+
 export default function BelegPicker({ excludeIds = [], beihilfestelleId, pkvId, onSelect, onCancel }: Props) {
   const [q, setQ] = useState('')
 
@@ -37,8 +44,10 @@ export default function BelegPicker({ excludeIds = [], beihilfestelleId, pkvId, 
   })
 
   const notExcluded = belege.filter(b => !excludeIds.includes(b.id))
-  const available = notExcluded.filter(b => isCompatible(b, beihilfestelleId, pkvId))
-  const hiddenCount = notExcluded.length - available.length
+  const notLinkedElsewhere = notExcluded.filter(b => !isAlreadyLinkedElsewhere(b))
+  const available = notLinkedElsewhere.filter(b => isCompatible(b, beihilfestelleId, pkvId))
+  const hiddenStelle = notLinkedElsewhere.length - available.length
+  const hiddenLinked = notExcluded.length - notLinkedElsewhere.length
 
   return (
     <div style={{
@@ -92,9 +101,14 @@ export default function BelegPicker({ excludeIds = [], beihilfestelleId, pkvId, 
               {belege.length === 0 ? 'Keine Belege vorhanden' : 'Alle passenden Belege bereits verknüpft'}
             </p>
           )}
-          {!isLoading && hiddenCount > 0 && (
+          {!isLoading && hiddenStelle > 0 && (
             <p style={{ fontSize: 11, color: 'var(--text-subtle)', padding: '6px 16px 0', margin: 0, fontStyle: 'italic' }}>
-              {hiddenCount} Beleg{hiddenCount !== 1 ? 'e' : ''} ausgeblendet (andere Stelle)
+              {hiddenStelle} Beleg{hiddenStelle !== 1 ? 'e' : ''} ausgeblendet (andere Stelle)
+            </p>
+          )}
+          {!isLoading && hiddenLinked > 0 && (
+            <p style={{ fontSize: 11, color: 'var(--text-subtle)', padding: '6px 16px 0', margin: 0, fontStyle: 'italic' }}>
+              {hiddenLinked} Beleg{hiddenLinked !== 1 ? 'e' : ''} ausgeblendet (bereits anderer Rechnung zugeordnet)
             </p>
           )}
           {available.map(b => (

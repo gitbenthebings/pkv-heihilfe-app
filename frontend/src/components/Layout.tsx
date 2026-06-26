@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { LayoutDashboard, Receipt, ClipboardList, BarChart, History, Paperclip, Database, Info } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
 import { useJahr } from '../context/JahrContext'
@@ -8,14 +9,14 @@ import { getConfig } from '../api/config'
 import { LOGO_URL } from '../api/logo'
 
 const NAV_ITEMS = [
-  { to: '/dashboard',          label: 'Dashboard' },
-  { to: '/rechnungen',         label: 'Rechnungen' },
-  { to: '/beihilfe-antraege',  label: 'Anträge' },
-  { to: '/auswertung',         label: 'Auswertung' },
-  { to: '/aktivitaetslog',     label: 'Protokoll' },
-  { to: '/belege',             label: 'Belege' },
-  { to: '/stammdaten',         label: 'Stammdaten' },
-  { to: '/ueber',              label: 'Über' },
+  { to: '/dashboard',          label: 'Dashboard',  icon: LayoutDashboard },
+  { to: '/rechnungen',         label: 'Rechnungen', icon: Receipt },
+  { to: '/beihilfe-antraege',  label: 'Anträge',     icon: ClipboardList },
+  { to: '/auswertung',         label: 'Auswertung',  icon: BarChart },
+  { to: '/aktivitaetslog',     label: 'Protokoll',   icon: History },
+  { to: '/belege',             label: 'Belege',      icon: Paperclip },
+  { to: '/stammdaten',         label: 'Stammdaten',  icon: Database },
+  { to: '/ueber',              label: 'Über',        icon: Info },
 ]
 
 export default function Layout() {
@@ -99,7 +100,7 @@ export default function Layout() {
 
           {/* Desktop nav links */}
           <div className="hidden sm:flex" style={{ alignItems: 'center', flex: 1, gap: 0 }}>
-            {NAV_ITEMS.map(({ to, label }) => (
+            {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -108,6 +109,7 @@ export default function Layout() {
                   height: 46,
                   display: 'flex',
                   alignItems: 'center',
+                  gap: 6,
                   fontSize: 13,
                   fontWeight: isActive ? 600 : 400,
                   color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
@@ -117,6 +119,7 @@ export default function Layout() {
                   whiteSpace: 'nowrap',
                 })}
               >
+                <Icon size={14} strokeWidth={2} style={{ flexShrink: 0 }} />
                 {label}
               </NavLink>
             ))}
@@ -236,13 +239,15 @@ export default function Layout() {
         {/* Mobile menu */}
         {menuOpen && (
           <div className="sm:hidden" style={{ borderTop: '1px solid var(--nav-border)', padding: '8px 16px 12px' }}>
-            {NAV_ITEMS.map(({ to, label }) => (
+            {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
                 onClick={() => setMenuOpen(false)}
                 style={({ isActive }) => ({
-                  display: 'block',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
                   padding: '8px 12px',
                   borderRadius: 6,
                   fontSize: 13,
@@ -253,6 +258,7 @@ export default function Layout() {
                   marginBottom: 2,
                 })}
               >
+                <Icon size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
                 {label}
               </NavLink>
             ))}

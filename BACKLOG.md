@@ -108,28 +108,57 @@ Ein globaler Suchschlitz (Referenznummer, Leistungserbringer, Notiz, Betrag) feh
 ### D1 · PKV-Abrechnung strukturiert erfassen
 **Status:** `[~]` *Ersetzt durch H2 — dort vollständig neu konzipiert.*
 
-### D2 · KI-gestützter Dokumentenimport und -analyse
+### D2 · Bescheid-Positionen aus PDF vorschlagen (Tesseract + Regex)
 **Status:** `[ ]`
 
-Ziel: Rechnungen (PDF/Foto) automatisch auslesen und Felder vorausfüllen — Betrag, Datum, Leistungserbringer, Person, ggf. Rechnungstyp. Zusätzlich: strukturierte Analyse von Beihilfe-Bescheiden (Positionen automatisch extrahieren).
+Beihilfebescheide sind Behördendokumente mit festem Tabellenaufbau und liegen immer als PDF vor (`bescheid_anhang`). Das macht sie zum idealen OCR-Ziel: einheitliches Format, zuverlässig parsebar, und das manuelle Eintippen der Positionen in `BeihilfeBescheidForm` ist der mühsamste Schritt im gesamten Workflow.
 
-**Mögliche Architektur:**
-- Upload im Frontend (ScanEditor oder neuer Import-Flow)
-- Backend leitet Dokument an LLM-API weiter (z. B. Claude API mit Vision/PDF-Support)
-- Strukturierte Antwort (JSON) → Felder in `RechnungForm` vorausfüllen
-- Nutzer prüft und bestätigt — kein blindes Übernehmen
+Tesseract läuft bereits für Belege. `bescheid_anhang` bekommt dieselbe Pipeline.
+
+**Zu erkennende Struktur (Positionstabelle im Bescheid):**
+
+Typische Spaltenfolge in deutschen Beihilfebescheiden:
+```
+Datum | Leistungserbringer | Rechnungsbetrag | anerkannt | abgelehnt | Ablehnungsgrund
+```
+Jede Zeile entspricht einer `beihilfe_bescheid_position`. Die Spaltenwerte werden per Regex aus dem OCR-Text extrahiert.
+
+**Matching Bescheid-Position → Rechnung:**
+
+Jede Position enthält Datum und Betrag der Originalrechnung. Abgleich gegen vorhandene `rechnung`-Datensätze des Antrags: `datum` + `betrag` (Cent-Rundung tolerieren) → `rechnung_id` vorschlagen. Kein Match → Position ohne `rechnung_id`, Nutzer weist manuell zu.
+
+**Weitere extrahierbare Felder:**
+- `erstattungsbetrag_gesamt` (Kontrollsumme) — steht meist als „Gesamtbetrag" oder „zu erstattender Betrag" im Bescheid
+- `bescheid_datum` — Datum im Briefkopf
+- `aktenzeichen` — Muster wie `Az.: …` oder `Geschäftszeichen: …`
+
+**Flow:**
+1. `bescheid_anhang`-Upload → OCR läuft async (neue Migration + Tesseract-Call analog `belege.rs`)
+2. Button „Positionen vorschlagen" in `BeihilfeBescheidForm` (nur sichtbar wenn Anhang mit `ocr_status = 'done'`)
+3. `GET /api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid/vorschlag` →
+   ```json
+   {
+     "bescheid_datum": "2026-03-15",
+     "aktenzeichen": "BH-2026-00123",
+     "erstattungsbetrag_gesamt": 38450,
+     "positionen": [
+       { "rechnung_id": "abc", "tatsaechliche_kosten": 12000, "anerkannt_betrag": 7560, "abgelehnt_betrag": 4440, "ablehnungsgrund": null }
+     ]
+   }
+   ```
+4. Frontend füllt Kopffelder und Positionstabelle vor; Nutzer prüft und korrigiert, dann speichert
+
+**Verhalten bei Teilfehlern:** Nicht erkannte Felder werden weggelassen (nie `null` erzwingen). Endpunkt gibt immer 200 zurück. Kein Downside wenn Erkennung fehlschlägt.
 
 **Betroffene Bereiche:**
-- `backend/src/services/` — neuer `ki_import.rs` Service
-- `backend/src/handlers/rechnungen.rs` — neuer Endpunkt `POST /api/rechnungen/analyse`
-- `frontend/src/components/RechnungForm.tsx` — Pre-fill-Logik + Bestätigungsschritt
-- `frontend/src/components/ScanEditor.tsx` — „Analysieren"-Button nach Scan
-- `backend/.env` / `frontend/src/pages/StammdatenPage.tsx` — API-Key-Konfiguration in Einstellungen
+- `backend/migrations/` — `ocr_text`, `ocr_status` auf `bescheid_anhang`
+- `backend/src/handlers/beihilfe_bescheide.rs` — OCR-Call nach Anhang-Upload; neuer GET-Endpunkt `vorschlag`
+- `backend/src/services/bescheid_ocr.rs` — Regex-Parsing der Positionstabelle + Rechnung-Matching
+- `frontend/src/components/BeihilfeBescheidForm.tsx` — Button „Positionen vorschlagen"; Vorschläge in Tabelle eintragen
+- `frontend/src/api/beihilfe_bescheide.ts` — neuer Call für `/vorschlag`
 
-**Erweiterungsmöglichkeiten:**
-- Bescheid-PDF → Positionen automatisch in `BeihilfeBescheidKarte` vorausfüllen
-- Plausibilitätsprüfung: Erkannter Betrag vs. eingegebener Betrag — Warnung bei Abweichung
-- Leistungserbringer-Matching: Erkannter Name → Abgleich mit vorhandenen Correspondents
+**Erweiterung (nachgelagert, optional):**
+Rechnungsanhänge (`anhang`) mit derselben Pipeline: Betrag, Datum, Leistungserbringer per Regex vorschlagen. Sinnvoll für häufige Stamm-Leistungserbringer, aber wegen der Formatvielfalt unzuverlässiger als Bescheide.
 
 ---
 
@@ -204,7 +233,7 @@ In der Antragsliste (AntragCard) aktuell nur Rechnungsbetrag-Summe. Zusätzlich:
 - `frontend/src/pages/BeihilfeAntraegePage.tsx` — onSelect per Enter triggern
 
 ### G7 · „Bereits in Antrag X"-Warnung im Rechnungs-Dropdown
-**Status:** `[ ]`
+**Status:** `[x]`
 
 Beim Hinzufügen einer Rechnung zum Antrag: Rechnungen die bereits in einem anderen aktiven Antrag stecken, mit Hinweis versehen statt sie zu verstecken. Nutzer entscheidet dann bewusst (Widerspruchsfall).
 
@@ -212,7 +241,7 @@ Beim Hinzufügen einer Rechnung zum Antrag: Rechnungen die bereits in einem ande
 - `frontend/src/components/BeihilfeAntragDetail.tsx` — Dropdown-Optionen mit Antrag-Info anreichern
 
 ### G8 · Bulk-Aktion „Zu Antrag hinzufügen"
-**Status:** `[ ]`
+**Status:** `[x]`
 
 In der Rechnungstabelle mehrere Rechnungen selektieren und direkt einem Antrag zuweisen. Aktueller Flow (Antrag öffnen → Dropdown → eine nach der anderen) ist bei vielen Rechnungen mühsam.
 

@@ -5,14 +5,14 @@ import {
   getBeleg, updateBeleg, deleteBeleg, fetchBelegBlob,
   addBelegToRechnung, removeBelegFromRechnung,
   addBelegToAntrag, removeBelegFromAntrag,
-  retriggerOcr,
+  retriggerOcr, getBelegBescheidVorschlag,
 } from '../api/belege'
 import { getBeihilfestellen } from '../api/beihilfestellen'
 import { getPkv } from '../api/pkv'
 import { TYP_LABELS } from './BelegeUpload'
 import VerknuepfungPicker from './VerknuepfungPicker'
 import { useToast } from '../context/ToastContext'
-import type { BelegTyp, Rechnung, BeihilfeAntrag } from '../types'
+import type { BelegTyp, Rechnung, BeihilfeAntrag, BescheidVorschlag } from '../types'
 
 interface Props {
   belegId: string | null
@@ -240,9 +240,145 @@ function EmptyHint({ text }: { text: string }) {
   )
 }
 
+// ── BescheidAnalyse ──────────────────────────────────────────────────────────
+function BescheidAnalyse({ belegId }: { belegId: string }) {
+  const [vorschlag, setVorschlag] = useState<BescheidVorschlag | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showJson, setShowJson] = useState(false)
+
+  const analyse = async () => {
+    setLoading(true); setError(null)
+    try {
+      setVorschlag(await getBelegBescheidVorschlag(belegId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Fehler')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fmtEur = (v: number) => v.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
+  const fmtDate = (s: string) => { try { return new Date(s).toLocaleDateString('de-DE') } catch { return s } }
+
+  return (
+    <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: vorschlag ? 12 : 0 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em' }}>
+          BESCHEID-ANALYSE
+        </span>
+        {!vorschlag ? (
+          <button
+            onClick={analyse}
+            disabled={loading}
+            style={{
+              fontSize: 11, padding: '4px 12px', borderRadius: 7,
+              background: 'var(--primary)', color: '#fff', border: 'none',
+              cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
+            }}
+          >
+            {loading ? 'Analysiere…' : 'Felder extrahieren'}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => setShowJson(v => !v)}
+              style={{ fontSize: 10, padding: '3px 9px', borderRadius: 6, background: 'var(--surface-alt)', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
+            >
+              {showJson ? 'Ansicht' : 'JSON'}
+            </button>
+            <button
+              onClick={analyse}
+              disabled={loading}
+              style={{ fontSize: 10, padding: '3px 9px', borderRadius: 6, background: 'var(--surface-alt)', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', opacity: loading ? 0.5 : 1 }}
+            >
+              ↻
+            </button>
+          </div>
+        )}
+      </div>
+
+      {error && <p style={{ fontSize: 11, color: 'var(--rose)', marginTop: 8 }}>{error}</p>}
+
+      {vorschlag && !showJson && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+          {/* Meta-Felder */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {[
+              { label: 'AKTENZEICHEN', value: vorschlag.aktenzeichen },
+              { label: 'DATUM', value: vorschlag.bescheid_datum ? fmtDate(vorschlag.bescheid_datum) : null },
+              { label: 'GESAMTBETRAG', value: vorschlag.erstattungsbetrag_gesamt != null ? fmtEur(vorschlag.erstattungsbetrag_gesamt) : null },
+            ].map(f => (
+              <div key={f.label} style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 10px' }}>
+                <div style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', marginBottom: 3 }}>{f.label}</div>
+                <div style={{ fontSize: 12, color: f.value ? 'var(--text)' : 'var(--text-subtle)', fontWeight: f.value ? 600 : 400 }}>
+                  {f.value ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Positionen */}
+          {vorschlag.positionen.length > 0 && (
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.07em', marginBottom: 6 }}>
+                POSITIONEN ({vorschlag.positionen.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {vorschlag.positionen.map((p, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    background: 'var(--surface-alt)', border: '1px solid var(--border)',
+                    borderRadius: 7, padding: '7px 10px', fontSize: 11,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                      background: p.rechnung_id ? 'var(--green)' : 'var(--amber)',
+                    }} />
+                    <span style={{ flex: 1, color: p.rechnung_id ? 'var(--green)' : 'var(--amber)', fontSize: 10, fontWeight: 600 }}>
+                      {p.rechnung_id ? 'Rechnung zugeordnet' : 'Nicht zugeordnet'}
+                    </span>
+                    {p.tatsaechliche_kosten != null && (
+                      <span style={{ color: 'var(--text-muted)' }}>Kosten {fmtEur(p.tatsaechliche_kosten)}</span>
+                    )}
+                    {p.anerkannt_betrag != null && (
+                      <span style={{ color: 'var(--green)', fontWeight: 700 }}>BH {fmtEur(p.anerkannt_betrag)}</span>
+                    )}
+                    {p.abgelehnt_betrag != null && p.abgelehnt_betrag > 0 && (
+                      <span style={{ color: 'var(--rose)' }}>✗ {fmtEur(p.abgelehnt_betrag)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {vorschlag.positionen.length === 0 && (
+            <p style={{ fontSize: 11, color: 'var(--text-subtle)', margin: 0 }}>
+              Keine Positionszeilen erkannt.
+            </p>
+          )}
+        </div>
+      )}
+
+      {vorschlag && showJson && (
+        <pre style={{
+          marginTop: 10, background: 'var(--surface-alt)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '12px 14px', fontSize: 11, lineHeight: 1.6,
+          color: 'var(--text-muted)', overflowX: 'auto', whiteSpace: 'pre-wrap',
+          maxHeight: 320, overflowY: 'auto',
+        }}>
+          {JSON.stringify(vorschlag, null, 2)}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 // ── InhaltTab ────────────────────────────────────────────────────────────────
-function InhaltTab({ beleg, onRetriggerOcr, isPending }: {
-  beleg: { ocr_status: string | null; ocr_text: string | null; hochgeladen_am: string }
+function InhaltTab({ belegId, beleg, onRetriggerOcr, isPending }: {
+  belegId: string
+  beleg: { ocr_status: string | null; ocr_text: string | null; hochgeladen_am: string; typ?: BelegTyp | null }
   onRetriggerOcr: () => void
   isPending: boolean
 }) {
@@ -378,6 +514,10 @@ function InhaltTab({ beleg, onRetriggerOcr, isPending }: {
       <div style={{ fontSize: 10, color: 'var(--text-subtle)', marginTop: 10 }}>
         Hochgeladen am {new Date(beleg.hochgeladen_am).toLocaleDateString('de-DE')} · Volltext durchsuchbar
       </div>
+
+      {(beleg.typ === 'erstbescheid' || beleg.typ === 'widerspruchsbescheid') && (
+        <BescheidAnalyse belegId={belegId} />
+      )}
     </div>
   )
 }
@@ -879,6 +1019,7 @@ export default function BelegDetailSlider({ belegId, onClose }: Props) {
           {/* ── Inhalt (OCR) ── */}
           {!isLoading && beleg && tab === 'inhalt' && (
             <InhaltTab
+              belegId={belegId}
               beleg={beleg}
               onRetriggerOcr={() => ocrMut.mutate()}
               isPending={ocrMut.isPending}

@@ -15,7 +15,7 @@ Self-hosted Server-Client-Applikation zur Verwaltung von Arzt-, Apotheken- und K
 |---|---|
 | Backend | Rust + Axum |
 | Datenbank | SQLite + SQLx |
-| Migrationen | sqlx-cli (`backend/migrations/`, aktuell 0001–0022) |
+| Migrationen | sqlx-cli (`backend/migrations/`, aktuell 0001–0028) |
 | Frontend | React + TypeScript + Tailwind CSS |
 | Container | Docker + Docker Compose |
 | Auth | JWT (jsonwebtoken crate) |
@@ -36,7 +36,7 @@ pkv-app/
 │   └── seed.json          ← optional; Ersteinrichtung alternativ über /setup im Browser
 ├── backend/
 │   ├── Cargo.toml
-│   ├── migrations/        ← 0001_init.sql … 0022_pkv_stammdaten.sql
+│   ├── migrations/        ← 0001_init.sql … 0028_bescheid_anhang_ocr.sql
 │   └── src/
 │       ├── main.rs
 │       ├── config.rs
@@ -63,13 +63,17 @@ pkv-app/
 │       │   ├── benutzer.rs
 │       │   ├── einstellungen.rs
 │       │   ├── aktivitaet.rs
-│       │   └── export.rs
+│       │   ├── export.rs
+│       │   └── backup.rs             ← GET /api/backup/download (ZIP-Stream), POST /api/backup/restore
 │       ├── services/
 │       │   ├── beihilfe_bescheide.rs  ← sync_beihilfe_erstattet(rechnung_id, db)
 │       │   ├── beihilfe_antraege.rs   ← Statusübergänge, beihilfe_eingereicht_am setzen
 │       │   ├── aktivitaet.rs
 │       │   ├── rechnungen.rs
 │       │   ├── export.rs
+│       │   ├── ocr.rs                ← Tesseract-Wrapper; STATUS_DONE/FAILED/UNAVAILABLE
+│       │   ├── bescheid_ocr.rs       ← BescheidVorschlag aus OCR-Text; parse(text, rechnungen)
+│       │   ├── thumbnail.rs
 │       │   ├── gdrive.rs
 │       │   └── paperless.rs
 │       └── repositories/  ← SQL-Queries pro Entität
@@ -82,6 +86,8 @@ pkv-app/
         │   ├── client.ts          ← api.get/post/patch/delete; 401 → /login
         │   ├── setup.ts           ← getSetupStatus(), doSetup()
         │   ├── belege.ts          ← getBelege, uploadBeleg, fetchBelegBlob, fetchBelegThumbnailBlob …
+        │   ├── bescheid_anhaenge.ts ← Upload, OCR-Trigger, getBescheidVorschlag, Blob-Download
+        │   ├── backup.ts          ← downloadBackup(), restoreBackup(file)
         │   ├── logo.ts            ← uploadLogo, deleteLogo, LOGO_URL
         │   ├── rechnungen.ts
         │   ├── beihilfe_antraege.ts
@@ -272,7 +278,8 @@ beihilfe_bescheid_position (
   ablehnungsgrund               -- TEXT, nullable
 )
 
-bescheid_anhang (id, mandant_id, bescheid_id, dateiname, pfad, groesse, hochgeladen_am)
+bescheid_anhang (id, mandant_id, bescheid_id, dateiname, pfad, groesse, hochgeladen_am,
+                 ocr_text, ocr_status)   -- ocr_status: null | 'done' | 'failed' | 'unavailable'
 
 rechnung_aktivitaet (
   id, mandant_id, rechnung_id, benutzer_id,  -- nullable = Systemaktion
@@ -363,6 +370,10 @@ POST           /api/einstellungen/gdrive-test
 -- Export
 POST   /api/export
 
+-- Backup
+GET    /api/backup/download      ← ZIP-Stream (pkv.db + /uploads); schreibt last_backup_at
+POST   /api/backup/restore       ← ZIP hochladen; überschreibt DB + Uploads; exit(0) → Docker-Restart
+
 -- Beihilfe-Anträge
 GET/POST       /api/beihilfe-antraege
 GET/PATCH/DELETE /api/beihilfe-antraege/:id
@@ -372,6 +383,9 @@ GET/POST/PATCH/DELETE /api/beihilfe-antraege/:id/bescheide[/:bid]
 GET/POST/PATCH/DELETE /api/beihilfe-antraege/:id/bescheide/:bid/positionen[/:pid]
                ← create/update/delete rufen sync_beihilfe_erstattet(rechnung_id) auf
 GET/POST/DELETE /api/beihilfe-antraege/:id/bescheide/:bid/anhaenge[/:aid]
+POST            /api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid/ocr
+GET             /api/beihilfe-antraege/:id/bescheide/:bid/anhaenge/:aid/vorschlag
+               ← BescheidVorschlag: parsed OCR → {bescheid_datum, aktenzeichen, erstattungsbetrag_gesamt, positionen[]}
 GET/POST/DELETE /api/beihilfe-antraege/:id/belege[/:bid]
 
 -- Belege
@@ -519,7 +533,9 @@ Vollbild-Layout (fullBleed) mit Sidebar-Navigation (analoges Muster wie BelegePa
 - Verwaltung: Personen · Beihilfestellen · PKV · Leistungserbringer
 - System: Benutzer · Einstellungen
 
-**Einstellungen-Tab** enthält: Logo (SVG), Scan-Parameter, Paperless NGX, n8n-Webhooks, Google Drive.
+**Einstellungen-Tab** enthält: Logo (SVG), Scan-Parameter, Paperless NGX, n8n-Webhooks, Google Drive, Datensicherung.
+
+**Datensicherung** (ganz unten im Tab): Zeigt `last_backup_at` aus `einstellungen`-Tabelle (grüner Status-Badge oder amber-Warnung wenn noch nie gesichert). Button „Backup herunterladen" streamt ZIP via `GET /api/backup/download`. Restore-Button (rot, mit Confirm-Dialog) lädt ZIP hoch via `POST /api/backup/restore` → App startet automatisch neu (Docker `restart: unless-stopped`).
 
 **Mobile**: MobileTabBar — horizontal scrollbare Tab-Leiste (`className="sm:hidden"`) ersetzt Desktop-Sidebar. Sidebar selbst: `className="hidden sm:flex"`.
 
@@ -553,6 +569,10 @@ Vollbild-Layout (fullBleed), `flex flex-col sm:flex-row`.
 Filter: Status-Chips + Typ-Filter (BH / PKV / Alle)
 
 `BeihilfeAntragDetail`: Inline-Bearbeitung im Header (kein separater Edit-Modus), Workflow-Stepper, Rechnungsliste, Bescheid-/Abrechnungsbereich.
+
+`BeihilfeBescheidForm` / `BescheidKarte`: Jede Karte enthält `BescheidAnhangUpload` — nach OCR-Abschluss erscheint „Positionen vorschlagen". Der Vorschlag ruft `/vorschlag` auf, übernimmt Meta-Felder (Datum, AZ, Gesamtbetrag) und legt gematchte Positionen direkt an. Ungematchte erscheinen als `ocrOffene`-Liste zur manuellen Zuweisung.
+
+**OCR-Matching-Logik** (`services/bescheid_ocr.rs`): Jede Textzeile mit ≥2 Euro-Beträgen wird als Position kandidiert. Matching per `betrag_cent ±5` gegen Rechnungen des Antrags. Bereits gematchte Rechnungen werden aus dem Pool ausgeschlossen (verhindert Doppel-Match bei gleichen Beträgen).
 
 ---
 
@@ -663,4 +683,4 @@ MULTIPAGE_SCAN=true
 
 ---
 
-*Letzte Aktualisierung: 2026-06-15 | Version: 2.5*
+*Letzte Aktualisierung: 2026-06-26 | Version: 2.6*

@@ -1,4 +1,4 @@
-import type { BescheidAnhang } from '../types'
+import type { BescheidAnhang, BescheidVorschlag } from '../types'
 
 const BASE_API = '/api'
 
@@ -56,4 +56,13 @@ export async function fetchBescheidAnhangFile(antragId: string, bescheidId: stri
   const res = await authFetch(`${path(antragId, bescheidId)}/${anhangId}`)
   const blob = await res.blob()
   return new File([blob], dateiname, { type: 'application/pdf' })
+}
+
+export async function triggerBescheidOcr(antragId: string, bescheidId: string, anhangId: string): Promise<void> {
+  await authFetch(`${path(antragId, bescheidId)}/${anhangId}/ocr`, { method: 'POST' })
+}
+
+export async function getBescheidVorschlag(antragId: string, bescheidId: string, anhangId: string): Promise<BescheidVorschlag> {
+  const res = await authFetch(`${path(antragId, bescheidId)}/${anhangId}/vorschlag`)
+  return res.json()
 }

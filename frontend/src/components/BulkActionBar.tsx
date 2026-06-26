@@ -2,6 +2,13 @@ import { useState } from 'react'
 import type { BulkAction } from '../types'
 import type { ExportProvider } from '../api/export'
 
+interface AntragOption {
+  id: string
+  referenz_nr: number
+  titel: string | null
+  typ: 'beihilfe' | 'pkv'
+}
+
 interface Props {
   count: number
   onAction: (action: BulkAction) => void
@@ -11,10 +18,14 @@ interface Props {
   exporting?: boolean
   archivModus?: boolean
   gdriveConfigured?: boolean
+  antraege?: AntragOption[]
+  onAntragHinzufuegen?: (antragId: string) => void
+  antragAddPending?: boolean
 }
 
-export default function BulkActionBar({ count, onAction, onExport, onClear, loading, exporting, archivModus, gdriveConfigured }: Props) {
+export default function BulkActionBar({ count, onAction, onExport, onClear, loading, exporting, archivModus, gdriveConfigured, antraege, onAntragHinzufuegen, antragAddPending }: Props) {
   const [provider, setProvider] = useState<ExportProvider>('local')
+  const [selectedAntragId, setSelectedAntragId] = useState('')
 
   const providers: { value: ExportProvider; label: string; disabled?: boolean }[] = [
     { value: 'local', label: 'Lokales Volume' },
@@ -63,6 +74,35 @@ export default function BulkActionBar({ count, onAction, onExport, onClear, load
               >
                 Archivieren
               </button>
+              {antraege && antraege.length > 0 && onAntragHinzufuegen && (
+                <div className="flex items-center gap-1">
+                  <select
+                    value={selectedAntragId}
+                    onChange={e => setSelectedAntragId(e.target.value)}
+                    className="px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+                  >
+                    <option value="">Antrag wählen…</option>
+                    {antraege.map(a => (
+                      <option key={a.id} value={a.id}>
+                        A-{String(a.referenz_nr).padStart(4, '0')} · {a.typ === 'pkv' ? 'PKV' : 'BH'}{a.titel ? ` · ${a.titel}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => {
+                      if (selectedAntragId) {
+                        onAntragHinzufuegen(selectedAntragId)
+                        setSelectedAntragId('')
+                      }
+                    }}
+                    disabled={!selectedAntragId || antragAddPending}
+                    className="px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    <span className="sm:hidden">{antragAddPending ? '…' : '→'}</span>
+                    <span className="hidden sm:inline">{antragAddPending ? 'Füge hinzu…' : 'Zu Antrag'}</span>
+                  </button>
+                </div>
+              )}
             </>
           )}
 

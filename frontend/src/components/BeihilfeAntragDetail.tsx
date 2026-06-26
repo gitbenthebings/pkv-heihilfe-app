@@ -126,7 +126,8 @@ export default function BeihilfeAntragDetail({ antragId, onClose }: Props) {
   })
 
   const addRechnungMut = useMutation({
-    mutationFn: (rechnungId: string) => addRechnung(antragId, rechnungId),
+    mutationFn: ({ rechnungId, widerspruch }: { rechnungId: string; widerspruch: boolean }) =>
+      addRechnung(antragId, rechnungId, widerspruch),
     onSuccess: () => { invalidate(); setAddRechnungError(null) },
     onError: (e: Error) => setAddRechnungError(e.message),
   })
@@ -164,19 +165,17 @@ export default function BeihilfeAntragDetail({ antragId, onClose }: Props) {
     ? matchedRechnungen.reduce((s, r) => s + (isPkv ? (r.pkv_erstattet_betrag ?? 0) : (r.beihilfe_erstattet_betrag ?? 0)), 0)
     : null
 
-  // Unassigned rechnungen for adding
+  // Rechnungen for adding
   const erlaubtePersonenIds = isPkv ? (pkv?.personen_ids ?? []) : (stelle?.personen_ids ?? [])
   const assignedIds = new Set(antragRechnungen.map(ar => ar.rechnung_id))
-  const unassigned = rechnungen.filter(r => {
+  const available = rechnungen.filter(r => {
     if (assignedIds.has(r.id) || r.archiviert_am) return false
-    if (isPkv) {
-      if (r.pkv_eingereicht_am != null) return false
-    } else {
-      if (r.beihilfe_eingereicht_am != null) return false
-    }
     if (erlaubtePersonenIds.length > 0 && !erlaubtePersonenIds.includes(r.person_id)) return false
     return true
   })
+  // Already-submitted ones shown separately as Widerspruch candidates
+  const freshRechnungen = available.filter(r => isPkv ? r.pkv_eingereicht_am == null : r.beihilfe_eingereicht_am == null)
+  const widerspruchRechnungen = available.filter(r => isPkv ? r.pkv_eingereicht_am != null : r.beihilfe_eingereicht_am != null)
 
   const statusStyle = STATUS_COLORS[status] ?? STATUS_COLORS.entwurf
 
@@ -558,14 +557,21 @@ export default function BeihilfeAntragDetail({ antragId, onClose }: Props) {
                 {addRechnungError}
               </div>
             )}
-            {unassigned.length > 0 && (
+            {(freshRechnungen.length > 0 || widerspruchRechnungen.length > 0) && (
               <select
                 style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 12px', fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer', marginTop: 8 }}
                 defaultValue=""
-                onChange={e => { if (e.target.value) { addRechnungMut.mutate(e.target.value); e.target.value = '' } }}
+                onChange={e => {
+                  const val = e.target.value
+                  if (!val) return
+                  const isWiderspruch = val.startsWith('w:')
+                  const rechnungId = isWiderspruch ? val.slice(2) : val
+                  addRechnungMut.mutate({ rechnungId, widerspruch: isWiderspruch })
+                  e.target.value = ''
+                }}
               >
                 <option value="">+ Rechnung hinzufügen…</option>
-                {unassigned.map(r => {
+                {freshRechnungen.map(r => {
                   const person = personMap[r.person_id]
                   const corr = corrMap[r.leistungserbringer_id]
                   return (
@@ -574,9 +580,24 @@ export default function BeihilfeAntragDetail({ antragId, onClose }: Props) {
                     </option>
                   )
                 })}
+                {widerspruchRechnungen.length > 0 && (
+                  <optgroup label="⚠ Bereits eingereicht – wird als Widerspruch hinzugefügt">
+                    {widerspruchRechnungen.map(r => {
+                      const person = personMap[r.person_id]
+                      const corr = corrMap[r.leistungserbringer_id]
+                      const submittedAt = isPkv ? r.pkv_eingereicht_am : r.beihilfe_eingereicht_am
+                      const dateStr = submittedAt ? new Date(submittedAt).toLocaleDateString('de-DE') : ''
+                      return (
+                        <option key={r.id} value={`w:${r.id}`}>
+                          {r.referenz_nr != null ? `R-${String(r.referenz_nr).padStart(4, '0')}` : '?'} · {formatEuro(r.betrag)} · {person?.name} · {corr?.name} · eingereicht {dateStr}
+                        </option>
+                      )
+                    })}
+                  </optgroup>
+                )}
               </select>
             )}
-            {antragRechnungen.length === 0 && unassigned.length === 0 && (
+            {antragRechnungen.length === 0 && available.length === 0 && (
               <p style={{ fontSize: 12, color: 'var(--text-subtle)', margin: 0 }}>
                 {isPkv ? 'Keine Rechnungen ohne PKV-Einreichung vorhanden.' : 'Keine Rechnungen ohne Beihilfe-Einreichung vorhanden.'}
               </p>
@@ -611,6 +632,10 @@ export default function BeihilfeAntragDetail({ antragId, onClose }: Props) {
             antragTyp={antrag.typ as 'beihilfe' | 'pkv'}
             beihilfestelleId={antrag.beihilfestelle_id}
             pkvId={antrag.pkv_id}
+            linkedRechnungen={matchedRechnungen.map(r => ({
+              id: r.id,
+              label: `${r.referenz_nr != null ? `R-${String(r.referenz_nr).padStart(4, '0')}` : '—'} · ${personMap[r.person_id]?.name ?? ''} · ${corrMap[r.leistungserbringer_id]?.name ?? ''}`,
+            }))}
           />
         </div>
       )}

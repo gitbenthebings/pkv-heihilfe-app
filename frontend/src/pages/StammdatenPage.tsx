@@ -6,6 +6,7 @@ import { getPersonen, createPerson, updatePerson, deletePerson, getSatzHistorie,
 import { getCorrespondents, createCorrespondent, updateCorrespondent, deleteCorrespondent } from '../api/correspondents'
 import { getBenutzer, createBenutzer, updateBenutzer, changePasswort, deleteBenutzer } from '../api/benutzer'
 import { getEinstellungen, updateEinstellungen, testPaperlessConnection, testGdriveConnection } from '../api/einstellungen'
+import { downloadBackup, restoreBackup } from '../api/backup'
 import { uploadLogo, deleteLogo, LOGO_URL } from '../api/logo'
 import { getScanMaxDim, getScanJpegQuality, setScanMaxDim, setScanJpegQuality, DEFAULT_MAX_DIM, DEFAULT_JPEG_QUALITY } from '../utils/scanSettings'
 import type {
@@ -989,6 +990,123 @@ function BenutzerTab() {
   )
 }
 
+// ─── Backup ───────────────────────────────────────────────────────────────────
+
+function BackupSection({ lastBackupAt, onBackupDone }: { lastBackupAt?: string; onBackupDone: () => void }) {
+  const [downloading, setDownloading] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const [restoreMsg, setRestoreMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const restoreRef = React.useRef<HTMLInputElement>(null)
+
+  const sectionStyle: React.CSSProperties = {
+    background: 'var(--surface-alt)', border: '1px solid var(--border)',
+    borderRadius: 10, padding: '18px 20px',
+  }
+
+  const formatTs = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      await downloadBackup()
+      onBackupDone()
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'Download fehlgeschlagen')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const handleRestoreFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    if (!confirm(`Wirklich aus "${file.name}" wiederherstellen? Alle aktuellen Daten werden überschrieben und die App neu gestartet.`)) return
+    setRestoring(true)
+    setRestoreMsg(null)
+    try {
+      const result = await restoreBackup(file)
+      setRestoreMsg({ ok: true, text: result.message })
+    } catch (err) {
+      setRestoreMsg({ ok: false, text: err instanceof Error ? err.message : 'Fehler' })
+      setRestoring(false)
+    }
+  }
+
+  return (
+    <div style={sectionStyle} className="space-y-4">
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Datensicherung</h3>
+
+      {/* Status */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '8px 12px', borderRadius: 7,
+        background: lastBackupAt ? 'var(--green-dim)' : 'var(--amber-dim)',
+        border: `1px solid ${lastBackupAt ? 'rgba(34,197,94,.2)' : 'rgba(232,160,48,.2)'}`,
+      }}>
+        <span style={{ fontSize: 16 }}>{lastBackupAt ? '✓' : '⚠'}</span>
+        <span style={{ fontSize: 12, color: lastBackupAt ? 'var(--green)' : 'var(--amber)', fontWeight: 600 }}>
+          {lastBackupAt
+            ? `Zuletzt gesichert: ${formatTs(lastBackupAt)}`
+            : 'Noch kein Backup erstellt'}
+        </span>
+      </div>
+
+      {/* Download */}
+      <div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Erstellt ein ZIP-Archiv mit der Datenbank und allen hochgeladenen Dateien.
+        </p>
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          className="app-btn-primary"
+          style={{ fontSize: 12, opacity: downloading ? 0.6 : 1 }}
+        >
+          {downloading ? 'Wird erstellt…' : 'Backup herunterladen'}
+        </button>
+        {downloadError && <p style={{ fontSize: 12, color: 'var(--rose)', marginTop: 6 }}>{downloadError}</p>}
+      </div>
+
+      {/* Restore */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+        <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Wiederherstellen</h4>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          ZIP-Backup hochladen – alle aktuellen Daten werden überschrieben. Die App startet anschließend automatisch neu.
+        </p>
+        <input
+          ref={restoreRef}
+          type="file"
+          accept=".zip,application/zip"
+          style={{ display: 'none' }}
+          onChange={handleRestoreFile}
+        />
+        <button
+          onClick={() => restoreRef.current?.click()}
+          disabled={restoring}
+          style={{
+            padding: '6px 14px', fontSize: 12, borderRadius: 6, cursor: restoring ? 'default' : 'pointer',
+            background: 'none', border: '1px solid var(--rose)', color: 'var(--rose)',
+            opacity: restoring ? 0.5 : 1,
+          }}
+        >
+          {restoring ? 'Wird wiederhergestellt…' : 'Backup einspielen…'}
+        </button>
+        {restoreMsg && (
+          <p style={{ fontSize: 12, marginTop: 8, color: restoreMsg.ok ? 'var(--green)' : 'var(--rose)' }}>
+            {restoreMsg.ok ? '✓ ' : '✗ '}{restoreMsg.text}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Einstellungen ────────────────────────────────────────────────────────────
 
 function GdriveAnleitung() {
@@ -1409,6 +1527,9 @@ function EinstellungenTab() {
           </button>
         </div>
       </div>
+
+      {/* Backup & Wiederherstellung */}
+      <BackupSection lastBackupAt={srv?.last_backup_at} onBackupDone={() => qc.invalidateQueries({ queryKey: ['einstellungen'] })} />
     </div>
   )
 }

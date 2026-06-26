@@ -4,12 +4,15 @@ import { useNavigate } from 'react-router-dom'
 import { Copy } from 'lucide-react'
 import { getRechnungen, updateRechnung } from '../api/rechnungen'
 import { getAktivitaet } from '../api/aktivitaet'
-import { getAntraege } from '../api/beihilfe_antraege'
+import { getAntraege, createAntrag, addRechnung } from '../api/beihilfe_antraege'
 import { getPersonen } from '../api/personen'
 import { getCorrespondents } from '../api/correspondents'
+import { getBeihilfestellen } from '../api/beihilfestellen'
+import { getPkv } from '../api/pkv'
 import AktivitaetsLog from './AktivitaetsLog'
 import BelegReferenzListe from './BelegReferenzListe'
-import type { Rechnung, UpdateRechnung, Person, Correspondent } from '../types'
+import { useToast } from '../context/ToastContext'
+import type { Rechnung, UpdateRechnung, Person, Correspondent, Beihilfestelle, Pkv, CreateBeihilfeAntrag } from '../types'
 
 interface Props {
   rechnungId: string | null
@@ -445,6 +448,111 @@ function ReadView({ rechnung, personen, correspondents, onEdit }: {
   )
 }
 
+// ─── Neuer-Antrag-Formular (Abkürzung aus der Rechnung) ───────────────────────
+
+function NeuerAntragForm({
+  person, beihilfestellen, pkvListe, saving, error, onCreate, onCancel,
+}: {
+  person: Person | undefined
+  beihilfestellen: Beihilfestelle[]
+  pkvListe: Pkv[]
+  saving: boolean
+  error: string | null
+  onCreate: (data: CreateBeihilfeAntrag) => void
+  onCancel: () => void
+}) {
+  const stelle = person?.beihilfestelle_id
+    ? beihilfestellen.find(b => b.id === person.beihilfestelle_id)
+    : undefined
+  const passendePkv = person
+    ? pkvListe.filter(p => p.personen_ids.length === 0 || p.personen_ids.includes(person.id))
+    : []
+
+  const [typ, setTyp] = useState<'beihilfe' | 'pkv'>(stelle ? 'beihilfe' : 'pkv')
+  const [pkvId, setPkvId] = useState(passendePkv.length === 1 ? passendePkv[0].id : '')
+  const [pkvVersicherer, setPkvVersicherer] = useState('')
+  const [titel, setTitel] = useState('')
+
+  const canSubmit = typ === 'beihilfe'
+    ? !!stelle
+    : (!!pkvId || (passendePkv.length === 0 && !!pkvVersicherer.trim()))
+
+  const submit = () => {
+    if (!canSubmit) return
+    onCreate({
+      typ,
+      titel: titel.trim() || undefined,
+      ...(typ === 'beihilfe'
+        ? { beihilfestelle_id: stelle!.id }
+        : { pkv_id: pkvId || undefined, pkv_versicherer: pkvId ? undefined : pkvVersicherer.trim() || undefined }),
+    })
+  }
+
+  const typBtn = (active: boolean, disabled: boolean): React.CSSProperties => ({
+    flex: 1, padding: '7px 0', fontSize: 12, fontWeight: 600, borderRadius: 6,
+    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
+    border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
+    background: active ? 'var(--primary)' : 'var(--surface)',
+    color: active ? '#fff' : 'var(--text-muted)',
+  })
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', background: 'var(--surface-alt)', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Neuer Antrag mit dieser Rechnung
+      </div>
+
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" disabled={!stelle} onClick={() => setTyp('beihilfe')} style={typBtn(typ === 'beihilfe', !stelle)}>
+          Beihilfe
+        </button>
+        <button type="button" onClick={() => setTyp('pkv')} style={typBtn(typ === 'pkv', false)}>
+          PKV
+        </button>
+      </div>
+
+      {typ === 'beihilfe' ? (
+        stelle ? (
+          <div style={{ fontSize: 13, color: 'var(--text)' }}>
+            An: <strong>{stelle.name}</strong>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--amber)' }}>Person hat keine Beihilfestelle zugeordnet.</div>
+        )
+      ) : passendePkv.length > 0 ? (
+        <select style={INP} value={pkvId} onChange={e => setPkvId(e.target.value)}>
+          <option value="">PKV auswählen…</option>
+          {passendePkv.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      ) : (
+        <input type="text" style={INP} placeholder="Versicherer, z. B. DKV, Debeka, …"
+          value={pkvVersicherer} onChange={e => setPkvVersicherer(e.target.value)} />
+      )}
+
+      <input type="text" style={INP} placeholder="Titel (optional)" value={titel}
+        onChange={e => setTitel(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && canSubmit) submit() }} />
+
+      {error && <div style={{ fontSize: 12, color: 'var(--rose)' }}>{error}</div>}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={submit}
+          disabled={!canSubmit || saving}
+          style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: (!canSubmit || saving) ? 'default' : 'pointer', opacity: (!canSubmit || saving) ? 0.6 : 1 }}
+        >
+          {saving ? 'Anlegen…' : 'Anlegen'}
+        </button>
+        <button onClick={onCancel}
+          style={{ background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 7, padding: '7px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+        >
+          Abbrechen
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Slider ──────────────────────────────────────────────────────────────
 
 type Tab = 'details' | 'belege' | 'antraege' | 'aktivitaet'
@@ -452,9 +560,12 @@ type Tab = 'details' | 'belege' | 'antraege' | 'aktivitaet'
 export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, onKopieren }: Props) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const overlayRef = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<Tab>('details')
   const [editing, setEditing] = useState(false)
+  const [showNeuerAntrag, setShowNeuerAntrag] = useState(false)
+  const [createAntragError, setCreateAntragError] = useState<string | null>(null)
 
   const { data: rechnungen = [] } = useQuery({ queryKey: ['rechnungen'], queryFn: () => getRechnungen() })
   const { data: personen    = [] } = useQuery({ queryKey: ['personen'],    queryFn: getPersonen })
@@ -472,6 +583,17 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
     enabled:  !!rechnungId && tab === 'antraege',
   })
 
+  const { data: beihilfestellen = [] } = useQuery({
+    queryKey: ['beihilfestellen'],
+    queryFn:  getBeihilfestellen,
+    enabled:  !!rechnungId && tab === 'antraege',
+  })
+  const { data: pkvListe = [] } = useQuery({
+    queryKey: ['pkv'],
+    queryFn:  getPkv,
+    enabled:  !!rechnungId && tab === 'antraege',
+  })
+
   const rechnung = rechnungen.find(r => r.id === rechnungId) ?? null
 
   const updateMut = useMutation({
@@ -485,6 +607,30 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
     },
   })
 
+  const createAntragMut = useMutation({
+    mutationFn: async (data: CreateBeihilfeAntrag) => {
+      const antrag = await createAntrag(data)
+      await addRechnung(antrag.id, rechnungId!)
+      return antrag
+    },
+    onSuccess: (antrag) => {
+      qc.invalidateQueries({ queryKey: ['antragRechnungen', antrag.id] })
+      qc.invalidateQueries({ queryKey: ['aktivitaet', rechnungId] })
+      setShowNeuerAntrag(false)
+      setCreateAntragError(null)
+      showToast('Antrag erstellt und Rechnung zugeordnet', {
+        label: 'Öffnen',
+        onClick: () => { onClose(); navigate(`/beihilfe-antraege?antrag=${antrag.id}`) },
+      })
+      onUpdate?.()
+    },
+    onError: (e: Error) => setCreateAntragError(e.message),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['antraege'] })
+      qc.invalidateQueries({ queryKey: ['antraege', 'fuer-rechnung', rechnungId] })
+    },
+  })
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -494,6 +640,8 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
   useEffect(() => {
     setTab('details')
     setEditing(false)
+    setShowNeuerAntrag(false)
+    setCreateAntragError(null)
   }, [rechnungId])
 
   if (!rechnungId) return null
@@ -636,6 +784,25 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
           </div>
         ) : tab === 'antraege' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
+            {showNeuerAntrag ? (
+              <NeuerAntragForm
+                person={personen.find(p => p.id === rechnung.person_id)}
+                beihilfestellen={beihilfestellen}
+                pkvListe={pkvListe}
+                saving={createAntragMut.isPending}
+                error={createAntragError}
+                onCreate={data => createAntragMut.mutate(data)}
+                onCancel={() => { setShowNeuerAntrag(false); setCreateAntragError(null) }}
+              />
+            ) : (
+              <button
+                onClick={() => setShowNeuerAntrag(true)}
+                style={{ background: 'none', color: 'var(--primary)', border: '1px dashed var(--border-hi)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', width: '100%', marginBottom: 12 }}
+              >
+                + Neuer Antrag mit dieser Rechnung
+              </button>
+            )}
+
             {zugehoerige_antraege.length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--text-subtle)' }}>
                 Diese Rechnung ist keinem Antrag zugeordnet.
@@ -651,7 +818,7 @@ export default function RechnungDetailSlider({ rechnungId, onClose, onUpdate, on
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <AntragStatusBadge status={a.status} />
                         <button
-                          onClick={() => { onClose(); navigate(`/beihilfe-antraege/${a.id}`) }}
+                          onClick={() => { onClose(); navigate(`/beihilfe-antraege?antrag=${a.id}`) }}
                           style={{ fontSize: 11, color: 'var(--primary)', background: 'none', border: '1px solid var(--primary)', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                         >
                           → Öffnen
