@@ -1,3 +1,6 @@
+# Docker Compose (lokale Konfiguration)
+docker-compose.yml
+
 # Secrets & Konfiguration
 .env
 .env.*
