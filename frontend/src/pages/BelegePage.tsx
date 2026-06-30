@@ -1,13 +1,43 @@
 import React, { useState, useRef, useMemo } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getBelege, uploadBeleg } from '../api/belege'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { getBelege, uploadBeleg, deleteBeleg } from '../api/belege'
 import { getBeihilfestellen } from '../api/beihilfestellen'
 import { getPkv } from '../api/pkv'
 import BelegCard from '../components/BelegCard'
 import BelegeUpload from '../components/BelegeUpload'
 import BelegDetailSlider from '../components/BelegDetailSlider'
 import { fileToGrayscalePdf } from '../utils/imageToGrayscalePdf'
+import { TYP_LABELS } from '../components/BelegeUpload'
 import type { Beleg, BelegTyp } from '../types'
+
+type BelegViewMode = 'cards' | 'table'
+
+function TableIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ display: 'block' }}>
+      <rect x="1" y="2" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+      <rect x="1" y="6" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+      <rect x="1" y="10" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+    </svg>
+  )
+}
+
+function GridIcon({ active }: { active: boolean }) {
+  const c = active ? 'var(--primary)' : 'var(--text-subtle)'
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ display: 'block' }}>
+      <rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="7.5" y="1" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="1" y="7.5" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="7.5" y="7.5" width="5.5" height="5.5" rx="1.5" fill={c} />
+    </svg>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 // Typ-Tone für Sidebar-Punkte (matching design)
 const TYPE_TONE: Partial<Record<BelegTyp, string>> = {
@@ -178,6 +208,14 @@ export default function BelegePage() {
   const [sort, setSort] = useState<SortMode>('neu')
   const [showUpload, setShowUpload] = useState(false)
   const [selectedBelegId, setSelectedBelegId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<BelegViewMode>(() =>
+    (localStorage.getItem('belege_view_mode') as BelegViewMode) ?? 'cards'
+  )
+
+  const switchView = (mode: BelegViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('belege_view_mode', mode)
+  }
 
   const dragCounterRef = useRef(0)
   const [pageDragOver, setPageDragOver] = useState(false)
@@ -212,6 +250,11 @@ export default function BelegePage() {
 
   const { data: beihilfestellen = [] } = useQuery({ queryKey: ['beihilfestellen'], queryFn: getBeihilfestellen })
   const { data: pkvListe = [] } = useQuery({ queryKey: ['pkv'], queryFn: getPkv })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteBeleg(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['belege'] }),
+  })
 
   const queryKey = ['belege', q, datumVon, datumBis]
   const { data: allBelege = [], isLoading, error } = useQuery({
@@ -534,6 +577,23 @@ export default function BelegePage() {
                 <option value="datum_alt">Belegdatum (älteste)</option>
                 <option value="az">Name (A–Z)</option>
               </select>
+              {/* Ansicht-Toggle */}
+              <div className="hidden sm:flex" style={{ borderRadius: 7, overflow: 'hidden', border: '1px solid var(--border)', flexShrink: 0 }}>
+                <button
+                  onClick={() => switchView('cards')}
+                  title="Kartenansicht"
+                  style={{ display: 'flex', alignItems: 'center', padding: '6px 9px', border: 'none', cursor: 'pointer', background: viewMode === 'cards' ? 'var(--surface-hi)' : 'transparent' }}
+                >
+                  <GridIcon active={viewMode === 'cards'} />
+                </button>
+                <button
+                  onClick={() => switchView('table')}
+                  title="Tabellenansicht"
+                  style={{ display: 'flex', alignItems: 'center', padding: '6px 9px', border: 'none', borderLeft: '1px solid var(--border)', cursor: 'pointer', background: viewMode === 'table' ? 'var(--surface-hi)' : 'transparent' }}
+                >
+                  <TableIcon active={viewMode === 'table'} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -549,8 +609,8 @@ export default function BelegePage() {
             </div>
           )}
 
-          {/* Grid */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px 32px' }}>
+          {/* Inhalt */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: viewMode === 'table' ? 0 : '18px 24px 32px' }}>
             {isLoading && (
               <p style={{ fontSize: 13, color: 'var(--text-subtle)', textAlign: 'center', padding: 40 }}>Lade…</p>
             )}
@@ -565,7 +625,9 @@ export default function BelegePage() {
                 </span>
               </div>
             )}
-            {!isLoading && belege.length > 0 && (
+
+            {/* ── Karten-Ansicht ── */}
+            {!isLoading && belege.length > 0 && viewMode === 'cards' && (
               grouped ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
                   {grouped.map(g => (
@@ -603,6 +665,74 @@ export default function BelegePage() {
                   ))}
                 </div>
               )
+            )}
+
+            {/* ── Tabellen-Ansicht ── */}
+            {!isLoading && belege.length > 0 && viewMode === 'table' && (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-alt)' }}>
+                    {(['BEZEICHNUNG', 'TYP', 'BELEGDATUM', 'HOCHGELADEN', 'GRÖSSE', 'OCR', 'VERKNÜPFT', ''] as const).map(h => (
+                      <th key={h} style={{ padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: h === '' ? 'right' : 'left', userSelect: 'none' }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {belege.map(b => {
+                    const linkedCount = b.linked_rechnungen.length + b.linked_antraege.length
+                    const displayName = b.bezeichnung || b.dateiname
+                    return (
+                      <tr
+                        key={b.id}
+                        onClick={() => setSelectedBelegId(b.id)}
+                        style={{ cursor: 'pointer', borderBottom: '1px solid var(--row-border)', background: selectedBelegId === b.id ? 'var(--row-active)' : 'transparent', borderLeft: selectedBelegId === b.id ? '2px solid var(--primary)' : '2px solid transparent', transition: 'background 0.1s' }}
+                        className="table-row-hover"
+                      >
+                        <td style={{ padding: '9px 12px', fontSize: 12, color: 'var(--text)', fontWeight: 500, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={displayName}>
+                          {displayName}
+                        </td>
+                        <td style={{ padding: '9px 12px' }}>
+                          {b.typ ? (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 700, background: `var(--${({rechnung:'amber',erstbescheid:'teal',widerspruchsbescheid:'rose',rezept:'green',ueberweisung:'blue',sonstiges:'purple'} as Record<string,string>)[b.typ] ?? 'purple'}-dim)`, color: `var(--${({rechnung:'amber',erstbescheid:'teal',widerspruchsbescheid:'rose',rezept:'green',ueberweisung:'blue',sonstiges:'purple'} as Record<string,string>)[b.typ] ?? 'purple'})` }}>
+                              {TYP_LABELS[b.typ]}
+                            </span>
+                          ) : <span style={{ color: 'var(--text-subtle)', fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ padding: '9px 12px', fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          {b.datum ? b.datum.split('-').reverse().join('.') : '—'}
+                        </td>
+                        <td style={{ padding: '9px 12px', fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          {b.hochgeladen_am ? new Date(b.hochgeladen_am).toLocaleDateString('de-DE') : '—'}
+                        </td>
+                        <td style={{ padding: '9px 12px', fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                          {formatBytes(b.groesse)}
+                        </td>
+                        <td style={{ padding: '9px 12px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: b.ocr_status === 'done' ? 'var(--green)' : 'var(--text-subtle)' }}>
+                            {b.ocr_status === 'done' ? 'OCR ✓' : b.ocr_status === null ? '○' : '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '9px 12px' }}>
+                          {linkedCount > 0 ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'var(--green-dim)', padding: '2px 7px', borderRadius: 10 }}>⛓ {linkedCount}</span>
+                          ) : (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)', background: 'var(--amber-dim)', padding: '2px 7px', borderRadius: 10 }}>frei</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                          <button
+                            onClick={e => { e.stopPropagation(); if (confirm(`„${displayName}" löschen?`)) deleteMut.mutate(b.id) }}
+                            title="Löschen"
+                            style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--rose)' }}
+                          >×</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
         </div>

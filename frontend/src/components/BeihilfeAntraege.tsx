@@ -3,8 +3,39 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { deleteAntrag } from '../api/beihilfe_antraege'
 import type { BeihilfeAntrag, Beihilfestelle, Pkv, AntragStatus } from '../types'
 
-function fmtEur(n: number) {
+type AntragViewMode = 'cards' | 'table'
+
+function TableIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ display: 'block' }}>
+      <rect x="1" y="2" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+      <rect x="1" y="6" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+      <rect x="1" y="10" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+    </svg>
+  )
+}
+
+function GridIcon({ active }: { active: boolean }) {
+  const c = active ? 'var(--primary)' : 'var(--text-subtle)'
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ display: 'block' }}>
+      <rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="7.5" y="1" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="1" y="7.5" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="7.5" y="7.5" width="5.5" height="5.5" rx="1.5" fill={c} />
+    </svg>
+  )
+}
+
+function fmtEur(n: number | null | undefined) {
+  if (n == null) return '—'
   return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })
+}
+
+function daysSinceLabel(dateStr: string | null): string {
+  if (!dateStr) return '—'
+  const d = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000)
+  return `${d} Tag${d === 1 ? '' : 'en'}`
 }
 
 const STATUSES: AntragStatus[] = ['entwurf', 'versendet', 'in_bearbeitung', 'beschieden', 'archiviert']
@@ -216,9 +247,17 @@ interface Props {
 
 export default function BeihilfeAntraege({ antraege, beihilfestellen, pkvListe, selectedId, onSelect, summaries }: Props) {
   const qc = useQueryClient()
+  const [viewMode, setViewMode] = useState<AntragViewMode>(() =>
+    (localStorage.getItem('antraege_view_mode') as AntragViewMode) ?? 'cards'
+  )
 
   const stelleMap = Object.fromEntries(beihilfestellen.map(b => [b.id, b]))
   const pkvMap = Object.fromEntries(pkvListe.map(p => [p.id, p]))
+
+  const switchView = (mode: AntragViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('antraege_view_mode', mode)
+  }
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteAntrag(id),
@@ -234,24 +273,141 @@ export default function BeihilfeAntraege({ antraege, beihilfestellen, pkvListe, 
   }
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-      gap: 16,
-      padding: '18px 24px 32px',
-    }}>
-      {antraege.map(a => (
-        <AntragCard
-          key={a.id}
-          antrag={a}
-          stelle={stelleMap[a.beihilfestelle_id ?? '']}
-          pkv={pkvMap[a.pkv_id ?? '']}
-          active={a.id === selectedId}
-          onClick={() => onSelect(a.id)}
-          onDelete={() => deleteMut.mutate(a.id)}
-          summary={summaries?.[a.id]}
-        />
-      ))}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* View toggle */}
+      <div className="hidden sm:flex" style={{ padding: '10px 24px', borderBottom: '1px solid var(--border)', justifyContent: 'flex-end' }}>
+        <div style={{ borderRadius: 7, overflow: 'hidden', border: '1px solid var(--border)', display: 'flex' }}>
+          <button
+            onClick={() => switchView('cards')}
+            title="Kartenansicht"
+            style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', border: 'none', cursor: 'pointer', background: viewMode === 'cards' ? 'var(--surface-hi)' : 'transparent' }}
+          >
+            <GridIcon active={viewMode === 'cards'} />
+          </button>
+          <button
+            onClick={() => switchView('table')}
+            title="Tabellenansicht"
+            style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', border: 'none', borderLeft: '1px solid var(--border)', cursor: 'pointer', background: viewMode === 'table' ? 'var(--surface-hi)' : 'transparent' }}
+          >
+            <TableIcon active={viewMode === 'table'} />
+          </button>
+        </div>
+      </div>
+
+      {/* Karten-Ansicht */}
+      {viewMode === 'cards' && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+          gap: 16,
+          padding: '18px 24px 32px',
+        }}>
+          {antraege.map(a => (
+            <AntragCard
+              key={a.id}
+              antrag={a}
+              stelle={stelleMap[a.beihilfestelle_id ?? '']}
+              pkv={pkvMap[a.pkv_id ?? '']}
+              active={a.id === selectedId}
+              onClick={() => onSelect(a.id)}
+              onDelete={() => deleteMut.mutate(a.id)}
+              summary={summaries?.[a.id]}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Tabellen-Ansicht */}
+      {viewMode === 'table' && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface-alt)' }}>
+                {(['REF.', 'TYP', 'TITEL', 'INSTITUTION', 'STATUS', 'BETRAG', 'ERWARTET', 'ERSTATTET', 'DATUM', ''] as const).map(h => (
+                  <th key={h} style={{ padding: '8px 12px', fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.08em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textAlign: h === 'BETRAG' || h === 'ERWARTET' || h === 'ERSTATTET' || h === '' ? 'right' : 'left', userSelect: 'none' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {antraege.map(a => {
+                const isPkv = a.typ === 'pkv'
+                const stelle = stelleMap[a.beihilfestelle_id ?? '']
+                const pkv = pkvMap[a.pkv_id ?? '']
+                const institutionName = isPkv ? (pkv?.name ?? a.pkv_versicherer ?? '—') : (stelle?.name ?? '—')
+                const s = summaries?.[a.id]
+                const status = a.status as AntragStatus
+                const ss = STATUS_STYLE[status] ?? STATUS_STYLE.entwurf
+                const isActive = a.id === selectedId
+
+                return (
+                  <tr
+                    key={a.id}
+                    onClick={() => onSelect(a.id)}
+                    style={{ cursor: 'pointer', borderBottom: '1px solid var(--row-border)', background: isActive ? 'var(--row-active)' : 'transparent', borderLeft: isActive ? '2px solid var(--primary)' : '2px solid transparent', transition: 'background 0.1s' }}
+                    className="table-row-hover"
+                  >
+                    {/* REF */}
+                    <td style={{ padding: '9px 12px', fontSize: 12, fontWeight: 600, color: isActive ? 'var(--primary)' : 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      #{String(a.referenz_nr).padStart(4, '0')}
+                    </td>
+                    {/* TYP */}
+                    <td style={{ padding: '9px 12px' }}>
+                      {isPkv
+                        ? <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--teal-dim)', color: 'var(--teal)', border: '1px solid rgba(0,196,176,.2)' }}>PKV</span>
+                        : <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--blue-dim)', color: 'var(--blue)', border: '1px solid rgba(74,136,245,.2)' }}>BH</span>
+                      }
+                    </td>
+                    {/* TITEL */}
+                    <td style={{ padding: '9px 12px', fontSize: 12, color: 'var(--text)', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {a.titel ?? <span style={{ color: 'var(--text-subtle)', fontStyle: 'italic', fontWeight: 400 }}>Kein Titel</span>}
+                    </td>
+                    {/* INSTITUTION */}
+                    <td style={{ padding: '9px 12px', fontSize: 12, color: 'var(--text-muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {institutionName}
+                    </td>
+                    {/* STATUS */}
+                    <td style={{ padding: '9px 12px' }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: ss.bg, color: ss.color, border: `1px solid ${ss.border}`, whiteSpace: 'nowrap' }}>
+                        {STATUS_LABELS[status] ?? status}
+                      </span>
+                    </td>
+                    {/* BETRAG */}
+                    <td style={{ padding: '9px 12px', fontSize: 12, fontWeight: 700, color: 'var(--text)', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {s && s.betrag > 0 ? fmtEur(s.betrag) : '—'}
+                    </td>
+                    {/* ERWARTET */}
+                    <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {fmtEur(s?.erwartet)}
+                    </td>
+                    {/* ERSTATTET */}
+                    <td style={{ padding: '9px 12px', fontSize: 11, fontWeight: 600, color: 'var(--green)', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {s?.tatsaechlich != null ? fmtEur(s.tatsaechlich) : '—'}
+                    </td>
+                    {/* DATUM */}
+                    <td style={{ padding: '9px 12px', fontSize: 11, color: 'var(--text-subtle)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {['versendet', 'in_bearbeitung'].includes(a.status) && a.versendet_am
+                        ? `${daysSinceLabel(a.versendet_am)} offen`
+                        : new Date(a.erstellt_am).toLocaleDateString('de-DE')}
+                    </td>
+                    {/* AKTIONEN */}
+                    <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                      {a.status === 'entwurf' && (
+                        <button
+                          onClick={e => { e.stopPropagation(); deleteMut.mutate(a.id) }}
+                          title="Löschen"
+                          style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--rose)' }}
+                        >×</button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

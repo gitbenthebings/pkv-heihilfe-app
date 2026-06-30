@@ -5,6 +5,30 @@ import StatusBadge from './StatusBadge'
 import BelegReferenzListe from './BelegReferenzListe'
 import { getZahlungszielStatus } from '../utils/aufgabenBuckets'
 
+type ViewMode = 'table' | 'cards'
+
+function TableIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ display: 'block' }}>
+      <rect x="1" y="2" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+      <rect x="1" y="6" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+      <rect x="1" y="10" width="12" height="2" rx="1" fill={active ? 'var(--primary)' : 'var(--text-subtle)'} />
+    </svg>
+  )
+}
+
+function GridIcon({ active }: { active: boolean }) {
+  const c = active ? 'var(--primary)' : 'var(--text-subtle)'
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ display: 'block' }}>
+      <rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="7.5" y="1" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="1" y="7.5" width="5.5" height="5.5" rx="1.5" fill={c} />
+      <rect x="7.5" y="7.5" width="5.5" height="5.5" rx="1.5" fill={c} />
+    </svg>
+  )
+}
+
 interface Props {
   rechnungen: Rechnung[]
   personen: Person[]
@@ -96,12 +120,20 @@ export default function RechnungenTable({
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
   const [tableFocused, setTableFocused] = useState(false)
   const [showColPicker, setShowColPicker] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    return (localStorage.getItem('rechnungen_view_mode') as ViewMode) ?? 'table'
+  })
   const [hiddenCols, setHiddenCols] = useState<Set<ToggableCol>>(() => {
     try {
       const s = localStorage.getItem('rechnungen_hidden_cols')
       return s ? new Set(JSON.parse(s) as ToggableCol[]) : new Set()
     } catch { return new Set() }
   })
+
+  const switchView = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('rechnungen_view_mode', mode)
+  }
 
   const wrapperRef = useRef<HTMLDivElement>(null)
   const colPickerRef = useRef<HTMLDivElement>(null)
@@ -172,6 +204,46 @@ export default function RechnungenTable({
     : sorted
 
   const allSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))
+
+  // ── Gruppierung ───────────────────────────────────────────────────────────
+
+  const GROUPABLE = new Set<SortKey>(['datum', 'person', 'korrespondent', 'typ', 'zahlung_status'])
+
+  function groupLabel(r: Rechnung): string {
+    switch (sortKey) {
+      case 'datum': {
+        try { return new Date(r.datum).toLocaleDateString('de-DE', { year: 'numeric', month: 'long' }) }
+        catch { return '—' }
+      }
+      case 'person':        return personMap[r.person_id]?.name ?? r.person_id
+      case 'korrespondent': return corrMap[r.leistungserbringer_id]?.name ?? r.leistungserbringer_id
+      case 'typ':           return ({ arzt: 'Arzt', apotheke: 'Apotheke', krankenhaus: 'Krankenhaus' } as Record<string, string>)[r.typ] ?? r.typ
+      case 'zahlung_status':return r.zahlung_status === 'bezahlt' ? 'Bezahlt' : 'Offen'
+      default:              return ''
+    }
+  }
+
+  const groups: Array<{ label: string; items: Rechnung[] }> = React.useMemo(() => {
+    if (!GROUPABLE.has(sortKey)) return [{ label: '', items: filtered }]
+    const result: Array<{ label: string; items: Rechnung[] }> = []
+    for (const r of filtered) {
+      const lbl = groupLabel(r)
+      const last = result[result.length - 1]
+      if (last && last.label === lbl) last.items.push(r)
+      else result.push({ label: lbl, items: [r] })
+    }
+    return result
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, sortKey, personMap, corrMap])
+
+  const GROUP_HEADER_STYLE: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)',
+    letterSpacing: '0.05em', textTransform: 'uppercase',
+    padding: '10px 14px 6px',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--surface-alt)',
+    position: 'sticky', top: 0, zIndex: 1,
+  }
 
   // ── Keyboard-Navigation ───────────────────────────────────────────────────
 
@@ -267,6 +339,24 @@ export default function RechnungenTable({
             {filtered.length} / {rechnungen.length}
           </span>
         )}
+        {/* Ansicht-Umschalter */}
+        <div className="hidden sm:flex" style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)', flexShrink: 0 }}>
+          <button
+            onClick={() => switchView('table')}
+            title="Tabellenansicht"
+            style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', border: 'none', cursor: 'pointer', background: viewMode === 'table' ? 'var(--surface-hi)' : 'transparent' }}
+          >
+            <TableIcon active={viewMode === 'table'} />
+          </button>
+          <button
+            onClick={() => switchView('cards')}
+            title="Kartenansicht"
+            style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', border: 'none', borderLeft: '1px solid var(--border)', cursor: 'pointer', background: viewMode === 'cards' ? 'var(--surface-hi)' : 'transparent' }}
+          >
+            <GridIcon active={viewMode === 'cards'} />
+          </button>
+        </div>
+
         {/* Spalten-Auswahl */}
         <div ref={colPickerRef} style={{ position: 'relative' }}>
           <button
@@ -381,8 +471,151 @@ export default function RechnungenTable({
         )}
       </div>
 
+      {/* ── Desktop-Ansicht: Karten ────────────────────────────────────── */}
+      {viewMode === 'cards' && (
+        <div className="hidden sm:block">
+          {filtered.length === 0 ? (
+            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 13 }}>
+              {q ? 'Keine Ergebnisse für diese Suche.' : 'Keine Rechnungen vorhanden.'}
+            </div>
+          ) : (
+            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {groups.map(({ label: grpLabel, items: grpItems }) => (
+                <div key={grpLabel || '__all'}>
+                  {grpLabel && (
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 5, borderBottom: '1px solid var(--border)' }}>
+                      {grpLabel} <span style={{ fontWeight: 400, opacity: 0.7 }}>({grpItems.length})</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+              {grpItems.map(r => {
+                const person  = personMap[r.person_id]
+                const corr    = corrMap[r.leistungserbringer_id]
+                const zlStatus = getZahlungszielStatus(r, todayStr)
+                const isSelected = selectedIds.has(r.id)
+
+                return (
+                  <div
+                    key={r.id}
+                    onClick={() => onOpenSlider?.(r.id)}
+                    style={{
+                      background: 'var(--surface)',
+                      border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                      borderRadius: 12, overflow: 'hidden', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column',
+                      transition: 'box-shadow 0.14s, transform 0.14s',
+                    }}
+                    className="rechnung-card-hover"
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.18)'; (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = ''; (e.currentTarget as HTMLElement).style.transform = '' }}
+                  >
+                    {/* Card header */}
+                    <div style={{ padding: '10px 12px 9px', background: 'var(--surface-alt)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onToggleSelect(r.id)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ accentColor: 'var(--primary)', width: 14, height: 14, flexShrink: 0 }}
+                        />
+                        {isVisible('typ') && (
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--surface-hi)', padding: '1px 7px', borderRadius: 4, textTransform: 'capitalize' }}>{r.typ}</span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? 'var(--primary)' : 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatReferenz(r.referenz_nr)}
+                      </span>
+                    </div>
+
+                    {/* Card body */}
+                    <div style={{ padding: '12px 13px 10px', flex: 1 }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em', marginBottom: 5 }}>
+                        {formatEuro(r.betrag)}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {person?.name ?? r.person_id}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {corr?.name ?? r.leistungserbringer_id}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>{formatDate(r.datum)}</span>
+                        {zlStatus && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: zlStatus === 'ueberfaellig' ? 'var(--rose-dim)' : 'var(--amber-dim)', color: zlStatus === 'ueberfaellig' ? 'var(--rose)' : 'var(--amber)' }}>
+                            {zlStatus === 'ueberfaellig' ? '⚠ Überfällig' : `Fällig ${formatDate(r.zahlungsziel)}`}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 7 }}>
+                        <StatusBadge label="Zahlung" status={r.zahlung_status} context="zahlung" />
+                        <StatusBadge label="Beihilfe" status={r.beihilfe_status} context="beihilfe" />
+                        <StatusBadge label="PKV" status={r.pkv_status} context="pkv" />
+                      </div>
+                      {(r.beihilfe_anteil_erwartet != null || r.pkv_anteil_erwartet != null) && (
+                        <div style={{ display: 'flex', gap: 10, fontSize: 11, color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums', flexWrap: 'wrap' }}>
+                          {r.beihilfe_anteil_erwartet != null && (
+                            <span>BH: {formatEuro(r.beihilfe_anteil_erwartet)}{r.beihilfe_erstattet_betrag != null && <> → <span style={{ color: r.beihilfe_differenz != null && r.beihilfe_differenz < 0 ? 'var(--rose)' : 'var(--green)', fontWeight: 600 }}>{formatEuro(r.beihilfe_erstattet_betrag)}</span></>}</span>
+                          )}
+                          {r.pkv_anteil_erwartet != null && (
+                            <span>PKV: {formatEuro(r.pkv_anteil_erwartet)}{r.pkv_erstattet_betrag != null && <> → <span style={{ color: r.pkv_differenz != null && r.pkv_differenz < 0 ? 'var(--rose)' : 'var(--green)', fontWeight: 600 }}>{formatEuro(r.pkv_erstattet_betrag)}</span></>}</span>
+                          )}
+                        </div>
+                      )}
+                      {isVisible('notiz') && r.notiz && (
+                        <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic', marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notiz}>{r.notiz}</div>
+                      )}
+                    </div>
+
+                    {/* Card footer */}
+                    <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
+                      {isVisible('paperless') && <PaperlessBadge r={r} paperlessNgxUrl={paperlessNgxUrl} />}
+                      <button
+                        onClick={e => { e.stopPropagation(); setAnhangExpandedId(id => id === r.id ? null : r.id) }}
+                        title="Anhänge"
+                        style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: `1px solid ${anhangExpandedId === r.id ? 'var(--border-hi)' : 'var(--border)'}`, background: anhangExpandedId === r.id ? 'var(--surface-hi)' : 'transparent', color: 'var(--text-muted)' }}>
+                        📎
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); onArchivToggle(r.id, !archivModus) }}
+                        title={archivModus ? 'Wiederherstellen' : 'Archivieren'}
+                        style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--amber)' }}>
+                        {archivModus ? '↩' : '🗄'}
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); onDelete(r.id) }}
+                        title="Löschen"
+                        style={{ padding: '3px 7px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--rose)' }}>
+                        ×
+                      </button>
+                    </div>
+
+                    {/* Anhang-Expandierung */}
+                    {anhangExpandedId === r.id && (
+                      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', background: 'var(--surface-alt)' }}>
+                        <BelegReferenzListe mode="rechnung" id={r.id} />
+                      </div>
+                    )}
+                    </div>
+                  )
+                })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Karten-Summe */}
+          {filtered.length > 1 && (
+            <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface-alt)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{filtered.length} Rechnungen</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(totals.betrag)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Desktop-Ansicht: Tabelle ───────────────────────────────────── */}
-      <div className="hidden sm:block overflow-x-auto" style={{ position: 'relative' }}>
+      <div className={`overflow-x-auto${viewMode === 'cards' ? ' hidden' : ' hidden sm:block'}`} style={{ position: 'relative' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--surface-alt)', position: 'sticky', top: 0, zIndex: 2 }}>
@@ -411,7 +644,17 @@ export default function RechnungenTable({
                 </td>
               </tr>
             )}
-            {filtered.map((r, idx) => {
+            {groups.map(({ label: grpLabel, items: grpItems }) => (
+              <React.Fragment key={grpLabel || '__all'}>
+                {grpLabel && (
+                  <tr>
+                    <td colSpan={20} style={GROUP_HEADER_STYLE}>
+                      {grpLabel} <span style={{ fontWeight: 400, opacity: 0.6 }}>({grpItems.length})</span>
+                    </td>
+                  </tr>
+                )}
+                {grpItems.map((r) => {
+              const idx = filtered.indexOf(r)
               const isSelected = selectedIds.has(r.id)
               const isFocused  = focusedIdx === idx
               const zlStatus   = getZahlungszielStatus(r, todayStr)
@@ -573,7 +816,9 @@ export default function RechnungenTable({
                   )}
                 </React.Fragment>
               )
-            })}
+                })}
+              </React.Fragment>
+            ))}
           </tbody>
 
           {/* ── Summenzeile ─────────────────────────────────────────────── */}
